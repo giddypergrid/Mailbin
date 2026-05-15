@@ -1,0 +1,14 @@
+{
+  "scripts": {
+    "setup": "npm --prefix frontend install",
+    "frontend:install": "npm --prefix frontend install",
+    "dev": "npm --prefix frontend run dev -- --host 127.0.0.1 --port 5174 --strictPort",
+    "build": "npm --prefix frontend run build",
+    "preview": "npm --prefix frontend run preview -- --host 127.0.0.1 --port 4173",
+    "supabase:setup": "sh ./supabase/setup.sh",
+    "supabase:setup:ps": "powershell -ExecutionPolicy Bypass -File ./supabase/setup.ps1",
+    "supabase:secrets": "npx supabase secrets set --env-file ./supabase/.env",
+    "supabase:db:push": "npx supabase db push",
+    "supabase:functions:deploy": "npx supabase functions deploy gmail-oauth-start && npx supabase functions deploy gmail-oauth-callback && npx supabase functions deploy gmail-mails && npx supabase functions deploy gmail-connection-status"
+  }
+}

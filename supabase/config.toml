@@ -1,0 +1,16 @@
+project_id = "mailbin"
+
+[functions.gmail-oauth-start]
+verify_jwt = false
+
+[functions.gmail-oauth-callback]
+verify_jwt = false
+
+[functions.gmail-mails]
+verify_jwt = false
+
+[functions.gmail-connection-status]
+verify_jwt = false
+
+[functions.core-memory]
+verify_jwt = false
