@@ -1,17 +1,4 @@
-export type AttachmentCategory = 'native' | 'convertible' | 'unsupported';
-
-export type GmailAttachmentMeta = {
-  filename: string;
-  mimeType: string;
-  sizeBytes: number;
-  attachmentId?: string;
-};
-
-export type ProcessedAttachment = GmailAttachmentMeta & {
-  category: AttachmentCategory;
-  convertTo?: string;
-  withinLimit: boolean;
-};
+import { type AttachmentCategory, type GmailAttachmentMeta, type ProcessedAttachment } from './types.ts';
 
 type FileTypeRule = {
   category: AttachmentCategory;

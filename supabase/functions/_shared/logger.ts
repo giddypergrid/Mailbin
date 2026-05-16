@@ -1,11 +1,7 @@
-import { requireEnv } from './http.ts';
+import { CONFIG } from './config.ts';
 
 function shouldLog(): boolean {
-  try {
-    return requireEnv('MAILBIN_LOG_LEVEL') !== 'silent';
-  } catch {
-    return true;
-  }
+  return CONFIG.log.level !== 'silent';
 } 
 
 export function log(tag: string, message: string, meta?: Record<string, unknown>) {

@@ -1,4 +1,6 @@
 import { log, logWeird } from './logger.ts';
+import { CONFIG } from './config.ts';
+import { type ClassifiedEmail } from './types.ts';
 
 type GeminiPart =
   | { text: string }
@@ -17,15 +19,8 @@ type GeminiResponse = {
   error?: { message: string };
 };
 
-const GEMINI_MODEL = 'gemini-2.5-flash-lite';
-const SUMMARY_MAX_WORDS = 10;
+const getGeminiModel = () => CONFIG.gemini.model;
 
-export type ClassifiedEmail = {
-  bin: 'emergency' | 'info' | 'maybe';
-  summary: string;
-  theme: string;
-  fromWho: string;
-};
 
 export async function classifyWithGemini(
   systemInstruction: string,
@@ -36,8 +31,9 @@ export async function classifyWithGemini(
     snippet: string;
     attachmentTexts?: string[];
   }>,
+  summaryMaxWords: number,
 ): Promise<Record<string, ClassifiedEmail>> {
-  const apiKey = Deno.env.get('GEMINI_API_KEY');
+  const apiKey = CONFIG.gemini.apiKey;
 
   if (!apiKey) {
     log('GEMINI', 'No API key configured — skipping AI classification');
@@ -59,7 +55,7 @@ export async function classifyWithGemini(
   parts.push({
     text: `For each email above:
 1. Classify as "emergency", "info", or "maybe" based on system rules.
-2. Write a 1-line summary (~10 words). May exceed only for urgent emergencies.
+2. Write a 1-line summary (~${summaryMaxWords} words). May exceed only for urgent emergencies.
 3. Theme: 1-3 word topic (e.g. "Payment", "Security", "Promo", "Work", "Social", "Account", "Shipping", "Trial Ending").
 4. FromWho: extract a short human-readable sender name (e.g. "Google", "Temu", "RunPod", "Uber Eats", "Lincoln Uni"). Leave empty if unclear.
 
@@ -79,14 +75,14 @@ Return ONLY a JSON object:
   try {
     log('GEMINI', 'Sending classify+summarize request', {
       emailCount: emailSummaries.length,
-      model: GEMINI_MODEL,
+      model: getGeminiModel(),
     });
 
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${getGeminiModel()}:generateContent`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify(requestBody),
       },
     );
