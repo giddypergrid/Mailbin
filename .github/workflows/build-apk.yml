@@ -18,9 +18,9 @@ jobs:
       - run: npm ci
       - run: npm run build
         env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-          VITE_SUPABASE_FUNCTIONS_URL: ${{ secrets.VITE_SUPABASE_FUNCTIONS_URL }}
+          VITE_SUPABASE_URL: https://ghsrkpghruvhibqjuymr.supabase.co
+          VITE_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdoc3JrcGdocnV2aGlicWp1eW1yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1NDE4NjMsImV4cCI6MjA5NDExNzg2M30.aHE9QL39UcSRJvw3P1bRGKTKzTbzQTNoD4RaOCe1XkE
+          VITE_SUPABASE_FUNCTIONS_URL: https://ghsrkpghruvhibqjuymr.supabase.co/functions/v1
       - run: npx cap add android
       - run: npx cap sync android
       - run: cd android && ./gradlew assembleDebug
