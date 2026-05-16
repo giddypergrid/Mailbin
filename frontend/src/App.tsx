@@ -43,16 +43,22 @@ export function App() {
   const [supabaseStatus, setSupabaseStatus] = useState<'missing' | 'checking' | 'ready' | 'error'>('checking');
   const [gmailStatus, setGmailStatus] = useState<string | null>(null);
   const [isGmailConnected, setIsGmailConnected] = useState(false);
-  const [gmailMails, setGmailMails] = useState<MailItem[]>([]);
-  const [gmailMailStatus, setGmailMailStatus] = useState<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle');
   const [isConnectingGmail, setIsConnectingGmail] = useState(false);
-  const [nextPageToken, setNextPageToken] = useState<string | null>(null);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [rateLimitNotice, setRateLimitNotice] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [coreMemory, setCoreMemory] = useState<CoreMemory | null>(null);
   const [showPreferences, setShowPreferences] = useState(false);
   const [savingPreferences, setSavingPreferences] = useState(false);
   const [preferencesError, setPreferencesError] = useState<string | null>(null);
+
+  const [binEmailsMap, setBinEmailsMap] = useState<Record<BinId, MailItem[]>>({
+    emergency: [], info: [], maybe: [],
+  });
+  const [binCursors, setBinCursors] = useState<Record<BinId, string | null>>({
+    emergency: null, info: null, maybe: null,
+  });
+  const [binStatuses, setBinStatuses] = useState<Record<BinId, 'idle' | 'loading' | 'ready' | 'empty' | 'error'>>({
+    emergency: 'idle', info: 'idle', maybe: 'idle',
+  });
 
   useEffect(() => {
     const onHashChange = () => {
@@ -74,19 +80,11 @@ export function App() {
     const controller = new AbortController();
 
     fetch(`${supabaseUrl}/auth/v1/settings`, {
-      headers: {
-        apikey: supabaseAnonKey,
-      },
+      headers: { apikey: supabaseAnonKey },
       signal: controller.signal,
     })
-      .then((response) => {
-        setSupabaseStatus(response.ok ? 'ready' : 'error');
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          setSupabaseStatus('error');
-        }
-      });
+      .then((response) => setSupabaseStatus(response.ok ? 'ready' : 'error'))
+      .catch(() => { if (!controller.signal.aborted) setSupabaseStatus('error'); });
 
     return () => controller.abort();
   }, []);
@@ -106,12 +104,8 @@ export function App() {
       const accessToken = params.get('accessToken');
       const refreshToken = params.get('refreshToken');
 
-      if (accessToken && !refreshToken) {
-        logWeird('Has accessToken but missing refreshToken', {});
-      }
-      if (!accessToken && refreshToken) {
-        logWeird('Has refreshToken but missing accessToken', {});
-      }
+      if (accessToken && !refreshToken) logWeird('Has accessToken but missing refreshToken', {});
+      if (!accessToken && refreshToken) logWeird('Has refreshToken but missing accessToken', {});
 
       if (accessToken && refreshToken) {
         log('Setting Supabase session from OAuth callback');
@@ -125,6 +119,7 @@ export function App() {
             setGmailStatus('Gmail connected');
             setIsGmailConnected(true);
             loadCoreMemory();
+            triggerSync();
           }
           window.history.replaceState({}, '', window.location.pathname + window.location.hash);
         });
@@ -140,9 +135,7 @@ export function App() {
 
   useEffect(() => {
     log(`Checking connection status (supabaseFunctionsUrl: ${!!supabaseFunctionsUrl})`);
-    if (!supabaseFunctionsUrl) {
-      return;
-    }
+    if (!supabaseFunctionsUrl) return;
 
     const controller = new AbortController();
 
@@ -157,6 +150,7 @@ export function App() {
         setIsGmailConnected(true);
         setGmailStatus('Gmail connected');
         loadCoreMemory();
+        triggerSync();
       }
     })().catch((error) => {
       if (!controller.signal.aborted) {
@@ -169,108 +163,82 @@ export function App() {
     return () => controller.abort();
   }, []);
 
-  const gmailFetch = useCallback(async (pageToken?: string) => {
+  const triggerSync = useCallback(async () => {
+    if (!supabaseFunctionsUrl) return;
+    setIsSyncing(true);
+    try {
+      await fetch(`${supabaseFunctionsUrl}/gmail-sync`, { headers: await getAuthHeaders() });
+    } catch {
+    } finally {
+      setIsSyncing(false);
+    }
+  }, []);
+
+  const gmailFetch = useCallback(async (binId: BinId, cursor?: string) => {
     if (!supabaseFunctionsUrl) return;
 
-    const isInitial = !pageToken;
-    if (isInitial) {
-      setGmailMailStatus('loading');
-    } else {
-      setIsLoadingMore(true);
-    }
-
-    const controller = new AbortController();
+    const isInitial = !cursor;
+    setBinStatuses((prev) => ({ ...prev, [binId]: isInitial ? 'loading' : prev[binId] }));
 
     try {
       const url = new URL(`${supabaseFunctionsUrl}/gmail-mails`);
-      url.searchParams.set('limit', '10');
-      if (pageToken) url.searchParams.set('pageToken', pageToken);
+      url.searchParams.set('bin', binId);
+      if (cursor) url.searchParams.set('before', cursor);
+      url.searchParams.set('limit', '20');
 
-      const response = await fetch(url, {
-        headers: await getAuthHeaders(),
-        signal: controller.signal,
-      });
-      const data = await response.json() as {
-        messages?: MailItem[];
-        status?: string;
-        reason?: string;
-        nextPageToken?: string | null;
-        rateLimited?: boolean;
-      };
+      const response = await fetch(url, { headers: await getAuthHeaders() });
+      const data = await response.json() as { messages?: MailItem[]; nextCursor?: string | null };
 
-      if (!response.ok || data.status === 'error') {
-        throw new Error(data.reason ?? 'Gmail fetch failed');
-      }
-
-      if (data.rateLimited) {
-        setRateLimitNotice('Gmail limit reached — please revisit later. Some emails may be missing.');
-      }
+      if (!response.ok) throw new Error(data && typeof data === 'object' && 'error' in data ? String((data as Record<string, unknown>).error) : 'fetch_failed');
 
       const messages = data.messages ?? [];
-      setGmailMails((prev) => isInitial ? messages : [...prev, ...messages]);
-      setNextPageToken(data.nextPageToken ?? null);
+      setBinEmailsMap((prev) => ({ ...prev, [binId]: isInitial ? messages : [...prev[binId], ...messages] }));
+      setBinCursors((prev) => ({ ...prev, [binId]: data.nextCursor ?? null }));
 
       if (isInitial) {
-        setGmailMailStatus(messages.length > 0 ? 'ready' : 'empty');
+        setBinStatuses((prev) => ({ ...prev, [binId]: messages.length > 0 ? 'ready' : 'empty' }));
       }
     } catch (error) {
-      if (!isInitial) {
-        logWeird('Gmail load more failed', { error: error instanceof Error ? error.message : String(error) });
-      } else {
-        logWeird('Gmail mails fetch failed', {
-          error: error instanceof Error ? error.message : String(error),
-        });
-        setGmailMails([]);
-        setGmailMailStatus('error');
+      if (isInitial) {
+        logWeird('GMAIL-FETCH', `Failed: ${error instanceof Error ? error.message : String(error)}`);
+        setBinEmailsMap((prev) => ({ ...prev, [binId]: [] }));
+        setBinStatuses((prev) => ({ ...prev, [binId]: 'error' }));
       }
-    } finally {
-      if (!isInitial) setIsLoadingMore(false);
     }
   }, []);
 
   useEffect(() => {
-    if (selectedBin !== 'emergency' || !supabaseFunctionsUrl) return;
-    setGmailMails([]);
-    setNextPageToken(null);
-    setRateLimitNotice(null);
-    gmailFetch();
-  }, [selectedBin, gmailFetch]);
+    if (!selectedBin || !isGmailConnected) return;
+    gmailFetch(selectedBin);
+  }, [selectedBin, isGmailConnected, gmailFetch]);
 
   const loadMoreGmail = useCallback(() => {
-    if (!nextPageToken || isLoadingMore || gmailMailStatus !== 'ready') return;
-    gmailFetch(nextPageToken);
-  }, [nextPageToken, isLoadingMore, gmailMailStatus, gmailFetch]);
+    if (!selectedBin) return;
+    const cursor = binCursors[selectedBin];
+    const status = binStatuses[selectedBin];
+    if (!cursor || status !== 'ready') return;
+    gmailFetch(selectedBin, cursor);
+  }, [selectedBin, binCursors, binStatuses, gmailFetch]);
 
   const loadCoreMemory = useCallback(async () => {
     if (!supabaseFunctionsUrl) return;
-
     try {
-      const response = await fetch(`${supabaseFunctionsUrl}/core-memory`, {
-        headers: await getAuthHeaders(),
-      });
-
-      if (response.ok) {
-        const data = await response.json() as CoreMemory;
-        setCoreMemory(data);
-      }
+      const response = await fetch(`${supabaseFunctionsUrl}/core-memory`, { headers: await getAuthHeaders() });
+      if (response.ok) setCoreMemory(await response.json() as CoreMemory);
     } catch {
-      // silently skip — preferences load on next app open
     }
   }, []);
 
   const saveCoreMemory = useCallback(async (updated: CoreMemory) => {
     if (!supabaseFunctionsUrl) return;
-
     setSavingPreferences(true);
     setPreferencesError(null);
-
     try {
       const response = await fetch(`${supabaseFunctionsUrl}/core-memory`, {
         method: 'PUT',
         headers: { ...(await getAuthHeaders()), 'Content-Type': 'application/json' },
         body: JSON.stringify(updated),
       });
-
       if (response.ok) {
         setCoreMemory(updated);
         setShowPreferences(false);
@@ -289,20 +257,20 @@ export function App() {
   useEffect(() => {
     const el = mailListRef.current;
     if (!el) return;
-
     const onScroll = () => {
-      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 400) {
-        loadMoreGmail();
-      }
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 400) loadMoreGmail();
     };
-
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
   }, [loadMoreGmail]);
 
   const activeBin = getBin(selectedBin);
-  const sourceMails = isGmailConnected && gmailMails.length > 0 ? gmailMails.filter((mail) => mail.bin === selectedBin) : getMailsForBin(selectedBin);
+  const sourceMails = selectedBin && binEmailsMap[selectedBin].length > 0
+    ? binEmailsMap[selectedBin]
+    : getMailsForBin(selectedBin);
   const activeMails = sourceMails.filter((mail) => !dismissedMailIds.includes(mail.id));
+  const currentBinStatus = selectedBin ? binStatuses[selectedBin] : 'idle';
+
   const supabaseStatusText = {
     missing: 'Fill .env',
     checking: 'Checking Supabase...',
@@ -320,25 +288,17 @@ export function App() {
       navigateToBin('emergency');
       return;
     }
-
-    if (isConnectingGmail) {
-      return;
-    }
-
+    if (isConnectingGmail) return;
     if (!supabaseFunctionsUrl) {
       window.alert('Add VITE_SUPABASE_FUNCTIONS_URL to .env first.');
       return;
     }
-
     setIsConnectingGmail(true);
     window.location.href = `${supabaseFunctionsUrl}/gmail-oauth-start`;
   }
 
   function handleMailClick(id: string) {
-    if (dismissingMailId) {
-      return;
-    }
-
+    if (dismissingMailId) return;
     setDismissingMailId(id);
     window.setTimeout(() => {
       setDismissedMailIds((current) => [...current, id]);
@@ -429,19 +389,17 @@ export function App() {
           </section>
 
           <section className="mail-list" aria-label={`${activeBin.title} mail list`} ref={mailListRef}>
-            {selectedBin === 'emergency' && rateLimitNotice ? (
-              <Dropdown label="Rate limit notice">
-                <p className="dropdown-rate-message">{rateLimitNotice}</p>
-              </Dropdown>
+            {isSyncing ? (
+              <p className="mail-list-status is-info">Syncing...</p>
             ) : null}
-            {selectedBin === 'emergency' && gmailMailStatus === 'loading' ? (
-              <p className="mail-list-status">Loading Gmail...</p>
+            {currentBinStatus === 'loading' ? (
+              <p className="mail-list-status">Loading emails...</p>
             ) : null}
-            {selectedBin === 'emergency' && gmailMailStatus === 'empty' ? (
-              <p className="mail-list-status">No Gmail messages loaded yet.</p>
+            {currentBinStatus === 'empty' ? (
+              <p className="mail-list-status">No emails in this bin yet.</p>
             ) : null}
-            {selectedBin === 'emergency' && gmailMailStatus === 'error' ? (
-              <p className="mail-list-status is-error">Could not load Gmail messages.</p>
+            {currentBinStatus === 'error' ? (
+              <p className="mail-list-status is-error">Could not load emails.</p>
             ) : null}
             {activeMails.map((mail) => (
               <button
@@ -474,8 +432,8 @@ export function App() {
                 <span>Done →</span>
               </button>
             ))}
-            {selectedBin === 'emergency' && isLoadingMore ? (
-              <p className="mail-list-status">Loading more...</p>
+            {currentBinStatus === 'ready' && binCursors[selectedBin!] ? (
+              <p className="mail-list-status">Scroll for more...</p>
             ) : null}
           </section>
         </main>
@@ -487,7 +445,7 @@ export function App() {
     <>
       {preferencesPanel}
       <main className="app-shell home-shell">
-        <button className="settings-button" type="button" aria-label="Settings">
+        <button className="settings-button" type="button" aria-label="Settings" onClick={() => setShowPreferences(true)}>
           <Settings size={20} />
         </button>
 
@@ -509,6 +467,10 @@ export function App() {
           <div className={`gmail-status ${gmailStatus.includes('failed') ? 'is-error' : 'is-ready'}`}>
             {gmailStatus}
           </div>
+        ) : null}
+
+        {isSyncing ? (
+          <div className="gmail-status is-ready">Syncing emails...</div>
         ) : null}
 
         <section className="hero">

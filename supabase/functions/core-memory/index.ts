@@ -2,18 +2,15 @@ import { handleCors } from '../_shared/cors.ts';
 import { jsonResponse, requireEnv } from '../_shared/http.ts';
 import { verifyJwt } from '../_shared/auth.ts';
 import { logWeird, log } from '../_shared/logger.ts';
+import { CONFIG } from '../_shared/config.ts';
 
 declare const Deno: {
   serve(handler: (req: Request) => Response | Promise<Response>): void;
 };
 
-const DEFAULT_MEMORY = [
-  'Promotional emails from shopping sites, newsletters, marketing → maybe.',
-  'Legal documents, bank statements, tax info, government notices → emergency.',
-  'Work emails from colleagues and managers → emergency.',
-  'Social media notifications → info.',
-  'Meeting invites, calendar reminders → info.',
-].join('\n');
+function getDefaultMemory(): string {
+  return CONFIG.coreMemory.defaultText;
+}
 
 const supabaseHeaders = (serviceRoleKey: string) => ({
   apikey: serviceRoleKey,
@@ -40,15 +37,6 @@ Deno.serve(async (req: Request) => {
     const headers = supabaseHeaders(serviceRoleKey);
 
     if (req.method === 'GET') {
-      await fetch(`${supabaseUrl}/rest/v1/core_memory`, {
-        method: 'POST',
-        headers: { ...headers, Prefer: 'resolution=ignore-duplicates' },
-        body: JSON.stringify({
-          user_id: userId,
-          memory_text: DEFAULT_MEMORY,
-        }),
-      });
-
       const response = await fetch(
         `${supabaseUrl}/rest/v1/core_memory?user_id=eq.${userId}&limit=1`,
         { headers },
@@ -61,7 +49,13 @@ Deno.serve(async (req: Request) => {
       const rows = await response.json() as Record<string, unknown>[];
 
       if (rows.length === 0) {
-        return jsonResponse({ error: 'Core memory not found after insert' }, 500);
+        log('CORE-MEMORY', 'No row found — returning defaults', { userId });
+        return jsonResponse({
+          memoryText: getDefaultMemory(),
+          summaryMaxWords: CONFIG.coreMemory.summaryWordsMax,
+          attachmentMaxSizeKb: CONFIG.coreMemory.attachmentKbDefault,
+          sendAttachmentsToAi: false,
+        });
       }
 
       const row = rows[0];
@@ -80,9 +74,21 @@ Deno.serve(async (req: Request) => {
       const body = await req.json();
       const updatePayload: Record<string, unknown> = { user_id: userId };
 
-      if (typeof body.memoryText === 'string') updatePayload.memory_text = body.memoryText;
-      if (typeof body.summaryMaxWords === 'number') updatePayload.summary_max_words = body.summaryMaxWords;
-      if (typeof body.attachmentMaxSizeKb === 'number') updatePayload.attachment_max_size_kb = body.attachmentMaxSizeKb;
+      const memoryMaxLength = CONFIG.coreMemory.maxLength;
+
+      if (typeof body.memoryText === 'string') {
+        updatePayload.memory_text = body.memoryText.slice(0, memoryMaxLength);
+      }
+      if (typeof body.summaryMaxWords === 'number') {
+        const wordsMin = CONFIG.coreMemory.summaryWordsMin;
+        const wordsMax = CONFIG.coreMemory.summaryWordsMax;
+        updatePayload.summary_max_words = Math.min(Math.max(body.summaryMaxWords, wordsMin), wordsMax);
+      }
+      if (typeof body.attachmentMaxSizeKb === 'number') {
+        const kbMin = CONFIG.coreMemory.attachmentKbMin;
+        const kbMax = CONFIG.coreMemory.attachmentKbMax;
+        updatePayload.attachment_max_size_kb = Math.min(Math.max(body.attachmentMaxSizeKb, kbMin), kbMax);
+      }
       if (typeof body.sendAttachmentsToAi === 'boolean') updatePayload.send_attachments_to_ai = body.sendAttachmentsToAi;
 
       updatePayload.updated_at = new Date().toISOString();

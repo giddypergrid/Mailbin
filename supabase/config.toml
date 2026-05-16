@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.core-memory]
 verify_jwt = false
+
+[functions.gmail-sync]
+verify_jwt = false

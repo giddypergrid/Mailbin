@@ -1,6 +1,7 @@
 import { corsHeaders, handleCors } from '../_shared/cors.ts';
-import { requireEnv } from '../_shared/http.ts';
+import { jsonResponse, requireEnv } from '../_shared/http.ts';
 import { log, logWeird } from '../_shared/logger.ts';
+import { ensureCoreMemory } from '../_shared/db.ts';
 
 declare const Deno: {
   serve(handler: (req: Request) => Response | Promise<Response>): void;
@@ -231,6 +232,11 @@ Deno.serve(async (req: Request) => {
     log('OAUTH-CALLBACK', 'Token exchange succeeded', { email });
     const supabaseUser = await ensureSupabaseUser(email);
     await saveConnection(tokenJson, email, supabaseUser.id);
+    await ensureCoreMemory(
+      requireEnv('MAILBIN_SUPABASE_URL'),
+      requireEnv('MAILBIN_SUPABASE_SERVICE_ROLE_KEY'),
+      supabaseUser.id,
+    );
 
     return redirect(frontendUrl, {
       gmail: 'connected',
