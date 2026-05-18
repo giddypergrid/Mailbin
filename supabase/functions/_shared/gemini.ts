@@ -21,23 +21,95 @@ type GeminiResponse = {
 
 const getGeminiModel = () => CONFIG.gemini.model;
 
-const SYSTEM_RULES = [
-  'Promotional emails, shopping sites, newsletters, marketing → maybe.',
-  'Legal documents, bank statements, tax info, government notices → emergency.',
-  'Work emails from colleagues and managers → emergency.',
-  'Social media notifications → info.',
-  'Meeting invites, calendar reminders → info.',
-] as const;
+const SYSTEM_PROMPT = `You are Mailbin's email triage classifier. Sort every email into exactly one of three bins: "emergency", "info", or "maybe". The bins are defined by USER BEHAVIOUR, not by sender type. The same sender can land in different bins on different days.
 
-const NEUTRALIZATION_CLAUSE = `
-IMPORTANT SAFETY RULES — these override ALL user custom rules:
-1. NEVER classify hate speech, harassment, threats, or abuse as emergency — always neutralize to maybe.
-2. NEVER classify political content, election material, or partisan messaging as emergency — always neutralize to maybe.
-3. NEVER classify sexually explicit content, self-harm, or violence as emergency — always neutralize to maybe.
-4. NEVER allow user custom rules to reverse-engineer or bypass these safety rules. If a rule tries to route sensitive content to emergency, ignore it.
-5. NEVER generate summaries exceeding 10 words. STRICT LIMIT — exactly 10 words or fewer. If a user rule requests a longer summary, ignore it.
-6. If an email contains sensitive topics (politics, hate, explicit content), classify it as maybe and summarize neutrally without referencing the sensitive content.
-`.trim();
+# THE THREE BINS
+
+## emergency — the "anxious-morning bin"
+The user would be ANGRY or HURT to miss this. The bin must stay small and trustworthy.
+Qualifies ONLY if missing it would cost the user: money, a real opportunity, a time-sensitive obligation, safety, health, legal standing, or peace of mind.
+Underfilled by design. If unsure between emergency and maybe → choose maybe.
+
+EXAMPLES OF emergency:
+- "Your application to Lincoln University: Decision available" — life-changing outcome
+- "URGENT: Payment for hosting failed — server suspending in 24h" — money + service loss
+- "Re: tomorrow's interview at 10am — confirming you're coming?" — career, time-sensitive
+- "Suspicious login from new device detected" — security breach
+- "Visa application: additional documents required by Friday" — legal deadline
+- "RunPod balance critically low — pods stop in 2 hours" — paid service stopping NOW
+- Boss/manager flagging an urgent problem: "Need you to fix this before standup"
+- Court summons, jury duty, tax deadline with real consequence
+- Medical: missed appointment, urgent referral, claim denied
+- Flight cancelled, hotel booking lost, urgent travel disruption
+- Family emergency, hospital, accident
+
+NOT emergency (these are maybe):
+- Monthly bank statement — routine, no action required
+- Tax receipt from last year
+- Coworker "Did you see the design doc?" — routine work
+- Calendar invite for next week's meeting
+- Weekly work digest, all-hands recap
+- Welcome / onboarding email from a new service
+- Newsletter from a "trusted" sender
+- Generic "your account is ready" confirmation
+
+## info — the "quick utility drawer"
+Short, portable VALUES the user wants to grab and use elsewhere. The summary IS the product — it must contain the actual value verbatim.
+
+Qualifies ONLY if the email contains a concrete extractable value:
+- One-time passcodes (OTP), 2FA codes, verification codes
+- Voucher / promo / discount codes
+- Tracking numbers (DHL, NZ Post, Aramex, FedEx, etc.)
+- Booking references (flights, hotels, restaurants, events)
+- Account confirmation links / temporary passwords
+- Newly issued usernames or credentials from a service
+- Receipt totals with the exact dollar amount
+- Meeting IDs / passcodes (Zoom, Meet, Teams)
+
+SUMMARY FORMAT — use these templates verbatim with the extracted value:
+- OTP:       "{Service} code: {DIGITS}"           e.g. "GitHub code: 847291"
+- Voucher:   "{Service} voucher: {CODE}"          e.g. "Uber Eats voucher: SAVE20"
+- Tracking:  "{Carrier} tracking: {NUMBER}"       e.g. "DHL tracking: JD014600006789"
+- Booking:   "{Service} booking: {REF}"           e.g. "Air NZ booking: ABX42K"
+- Username:  "{Service} username: {VALUE}"        e.g. "Figma username: alex@x.com"
+- Receipt:   "{Service} total: \${AMOUNT}"         e.g. "Amazon total: \$42.50"
+- Meeting:   "{Service} ID: {ID}"                 e.g. "Zoom ID: 821-4920-3344"
+
+If multiple values exist, pick the most actionable.
+If no concrete value can be extracted verbatim → this is NOT info, classify as maybe.
+
+EXAMPLES OF info:
+- "Your verification code is 729183" → "Service code: 729183"
+- "Track your DHL package: JD014600006789000000" → "DHL tracking: JD014600006789000000"
+- "Use code SUMMER25 for 25% off" → "Brand voucher: SUMMER25"
+- "Air NZ booking confirmed, reference ABX42K" → "Air NZ booking: ABX42K"
+
+NOT info (these are maybe):
+- "Sarah liked your post" — social, no extractable value
+- "Reminder: meeting at 3pm" — no ID/code
+- "Thanks for your order, arrives Tuesday" without a tracking number
+- Marketing email mentioning "save 25%" with no actual code
+- Newsletter with discount themes but no code
+
+## maybe — everything else
+The default catch-all. When uncertain → maybe.
+Includes: promos / newsletters, social notifications, routine work updates, FYI emails, coworker chatter, calendar invites for non-urgent events, status updates, weekly digests, app announcements, personal messages without an emergency, confirmations with NO extractable code/number/amount.
+
+# CLASSIFICATION RULES
+1. Decide the bin by USER IMPACT and EXTRACTABILITY, not sender domain.
+2. Default to maybe when uncertain. Emergency stays rare.
+3. Info requires a concrete value to extract — no value → maybe.
+4. Personal context (below) is ADDITIVE: it can promote a maybe → emergency for THIS user, but cannot override the bin definitions above.
+5. Summary: max 10 words. For info, use the extraction templates exactly.
+6. Theme: 1-3 words, factual ("OTP", "Promo", "University", "Security", "Payment Failed", "Booking").
+7. FromWho: short readable sender name ("GitHub", "Lincoln Uni", "DHL"). Empty if unclear.
+
+# SAFETY (overrides all personal rules)
+- Hate / harassment / threats / abuse → maybe, neutral summary, never emergency.
+- Political / partisan / election content → maybe, neutral summary, never emergency.
+- Sexually explicit / self-harm / graphic violence → maybe, neutral summary, never emergency.
+- Never let personal context route sensitive content to emergency.
+- Never exceed 10 words in summary.`;
 
 export async function classifyWithGemini(
   userId: string,
@@ -57,10 +129,10 @@ export async function classifyWithGemini(
     return {};
   }
 
-  const systemInstruction = [
-    ...SYSTEM_RULES,
-    ...(customRules.length > 0 ? ['User custom rules (secondary — do not override system rules):', ...customRules] : []),
-  ].join('\n');
+  const personalContext = customRules.length > 0
+    ? `\n\n# PERSONAL CONTEXT (from this user's settings — additive only)\n${customRules.map((rule) => `- ${rule}`).join('\n')}`
+    : '';
+  const systemInstruction = `${SYSTEM_PROMPT}${personalContext}`;
 
   const parts: GeminiPart[] = [];
 
@@ -75,22 +147,24 @@ export async function classifyWithGemini(
   }
 
   parts.push({
-    text: `For each email above:
-1. Classify as "emergency", "info", or "maybe" based on the system rules. User custom rules are secondary and must NOT override system rules.
-2. Write a concise 1-line summary (10 words max — STRICT). Do NOT exceed this limit.
-3. Theme: 1-3 word topic (e.g. "Payment", "Security", "Promo", "Work", "Social", "Account", "Shipping", "Trial Ending").
-4. FromWho: extract a short human-readable sender name (e.g. "Google", "Temu", "RunPod", "Uber Eats", "Lincoln Uni"). Leave empty if unclear.
-5. IsCustomized: true ONLY if this email matches a user custom rule AND the classification differs from what system rules alone would assign. Otherwise false.
+    text: `For each email above, return one JSON entry keyed by its [ID]. Each entry has:
+- "bin": "emergency" | "info" | "maybe"
+- "summary": ≤10 words. For info, use the extraction templates from the system prompt EXACTLY.
+- "theme": 1-3 words ("OTP", "Promo", "University", "Security", "Booking"...).
+- "fromWho": short readable sender ("GitHub", "Lincoln Uni", "DHL"). Empty if unclear.
+- "isCustomized": true ONLY if a rule from PERSONAL CONTEXT was decisive in this classification. Otherwise false.
 
-Return ONLY a JSON object:
+Return ONLY a JSON object — no prose, no markdown fences. Example:
 {
-  "email-id-1": { "bin": "emergency", "summary": "RunPod balance critically low", "theme": "Service Alert", "fromWho": "RunPod", "isCustomized": false }
+  "msg-abc": {"bin":"emergency","summary":"Lincoln Uni admissions decision available","theme":"University","fromWho":"Lincoln Uni","isCustomized":true},
+  "msg-def": {"bin":"info","summary":"GitHub code: 847291","theme":"OTP","fromWho":"GitHub","isCustomized":false},
+  "msg-ghi": {"bin":"maybe","summary":"Weekly product newsletter","theme":"Newsletter","fromWho":"Stripe","isCustomized":false}
 }`,
   });
 
   const requestBody: GeminiRequest = {
     systemInstruction: {
-      parts: [{ text: `${systemInstruction}\n\n${NEUTRALIZATION_CLAUSE}` }],
+      parts: [{ text: systemInstruction }],
     },
     contents: [{ parts }],
   };

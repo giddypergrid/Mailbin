@@ -19,6 +19,9 @@ npx supabase functions deploy gmail-mails
 npx supabase functions deploy gmail-connection-status
 npx supabase functions deploy core-memory
 npx supabase functions deploy gmail-sync
+npx supabase functions deploy mark-read
+npx supabase functions deploy save-feedback
+npx supabase functions deploy process-feedback
 
 Write-Host ''
 Write-Host 'Supabase setup complete.' -ForegroundColor Green

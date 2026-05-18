@@ -17,3 +17,12 @@ verify_jwt = false
 
 [functions.gmail-sync]
 verify_jwt = false
+
+[functions.mark-read]
+verify_jwt = false
+
+[functions.save-feedback]
+verify_jwt = false
+
+[functions.process-feedback]
+verify_jwt = false

@@ -39,4 +39,5 @@ export type CoreMemory = {
   customRules: string[];
   attachmentMaxSizeKb: number;
   sendAttachmentsToAi: boolean;
+  markEmailsAsRead: boolean;
 };

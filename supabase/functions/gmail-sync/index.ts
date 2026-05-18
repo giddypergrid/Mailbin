@@ -37,7 +37,7 @@ import { log, logWeird } from '../_shared/logger.ts';
 import { classifyWithGemini } from '../_shared/gemini.ts';
 import { parseFromHeader } from '../_shared/mail-builder.ts';
 import { processAttachments } from '../_shared/attachment-processor.ts';
-import { type GmailPart } from '../_shared/types.ts';
+import { type GmailPart, type GmailMessageResponse } from '../_shared/types.ts';
 import { CONFIG } from '../_shared/config.ts';
 import { fetchMessageList, fetchMessageDetail, getValidAccessToken } from '../_shared/gmail-client.ts';
 import { fetchUserConnection, fetchCoreMemory, fetchExistingMessageIds, upsertEmail, updateLastSyncedAt } from '../_shared/db.ts';
@@ -62,7 +62,7 @@ function collectAttachments(parts: GmailPart[] | undefined): Array<{ filename: s
 
 function formatDateForGmail(isoDate: string): string {
   const d = new Date(isoDate);
-  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+  return `${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${String(d.getUTCDate()).padStart(2, '0')}`;
 }
 
 function truncateWords(text: string, maxWords: number): string {
@@ -95,7 +95,9 @@ Deno.serve(async (req: Request) => {
 
     const coreMemory = await fetchCoreMemory(supabaseUrl, serviceRoleKey, userId);
     const maxAttachmentKb = coreMemory?.attachment_max_size_kb ?? CONFIG.coreMemory.attachmentKbDefault;
-    const customRules = coreMemory?.custom_rules ?? [];
+    const customRules = (coreMemory?.custom_rules && coreMemory.custom_rules.length > 0)
+      ? coreMemory.custom_rules
+      : CONFIG.coreMemory.defaultRules;
 
     const accessToken = await getValidAccessToken(connection, supabaseUrl, serviceRoleKey);
 
@@ -153,18 +155,33 @@ Deno.serve(async (req: Request) => {
     newMessages.reverse();
 
     // 4. Process in batches
+    //    - fetchConcurrency: small (≤5) → avoid Gmail 429
+    //    - classifyBatchSize: large (≥15) → amortize system-prompt cost across emails
     let syncedCount = 0;
-    const batchSize = CONFIG.fetch.batchSize;
+    const fetchConcurrency = CONFIG.fetch.batchSize;
+    const classifyBatchSize = CONFIG.fetch.classifyBatchSize;
     const batchDelay = CONFIG.fetch.batchDelayMs;
     let oldestReceivedAt: string | null = null;
 
-    for (let i = 0; i < newMessages.length; i += batchSize) {
-      const batch = newMessages.slice(i, i + batchSize);
-      const details = await Promise.all(batch.map(async ({ id }) => {
-        const { ok, data } = await fetchMessageDetail(accessToken, id);
-        return ok ? data : null;
-      }));
-      const validMessages = details.filter((d) => d !== null);
+    for (let i = 0; i < newMessages.length; i += classifyBatchSize) {
+      const classifyBatch = newMessages.slice(i, i + classifyBatchSize);
+
+      // Fetch Gmail details in small concurrent chunks
+      const validMessages: GmailMessageResponse[] = [];
+      for (let j = 0; j < classifyBatch.length; j += fetchConcurrency) {
+        const fetchChunk = classifyBatch.slice(j, j + fetchConcurrency);
+        const details = await Promise.all(fetchChunk.map(async ({ id }) => {
+          const { ok, data } = await fetchMessageDetail(accessToken, id);
+          return ok ? data : null;
+        }));
+        for (const d of details) {
+          if (d !== null) validMessages.push(d);
+        }
+        if (j + fetchConcurrency < classifyBatch.length) {
+          await new Promise((r) => setTimeout(r, batchDelay));
+        }
+      }
+
       if (validMessages.length === 0) continue;
 
       const emailInputs = validMessages.map((m) => ({
@@ -174,9 +191,18 @@ Deno.serve(async (req: Request) => {
         snippet: m.snippet || '',
       }));
 
+      // One Gemini call for the whole batch — amortizes system prompt
       let classification: Record<string, { bin: string; summary: string; theme: string; fromWho: string; isCustomized: boolean }> = {};
       if (CONFIG.gemini.apiKey) {
         classification = await classifyWithGemini(userId, customRules, emailInputs);
+      }
+
+      const classifiedCount = Object.keys(classification).length;
+      if (CONFIG.gemini.apiKey && classifiedCount === 0) {
+        logWeird('GMAIL-SYNC', 'Classification empty — falling back to maybe with Unclassified theme', {
+          userId,
+          batchSize: validMessages.length,
+        });
       }
 
       for (const msg of validMessages) {
@@ -185,6 +211,8 @@ Deno.serve(async (req: Request) => {
         const fromParsed = parseFromHeader(fromValue);
         const subject = getHeader(msg, 'Subject') || '(No subject)';
         const receivedAt = msg.internalDate ? new Date(Number(msg.internalDate)).toISOString() : null;
+        const labelIds = msg.labelIds ?? [];
+        const isReadInGmail = !labelIds.includes('UNREAD');
 
         const rawAttachments = collectAttachments(msg.payload?.parts);
         const attachmentResult = rawAttachments.length > 0 ? processAttachments(rawAttachments, maxAttachmentKb) : null;
@@ -199,9 +227,10 @@ Deno.serve(async (req: Request) => {
           summary: truncateWords(geminiResult?.summary || msg.snippet || subject, 10),
           received_at: receivedAt,
           bin: geminiResult?.bin || 'maybe',
-          ai_theme: geminiResult?.theme || '',
+          ai_theme: geminiResult?.theme || (CONFIG.gemini.apiKey && !geminiResult ? 'Unclassified' : ''),
           ai_from_who: geminiResult?.fromWho || fromParsed.name,
           is_customized: geminiResult?.isCustomized ?? false,
+          is_read: isReadInGmail,
           has_attachments: rawAttachments.length > 0,
           attachment_total_kb: attachmentResult ? Math.round(attachmentResult.totalKb) : 0,
         });
@@ -211,7 +240,7 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      if (i + batchSize < newMessages.length) {
+      if (i + classifyBatchSize < newMessages.length) {
         await new Promise((r) => setTimeout(r, batchDelay));
       }
     }

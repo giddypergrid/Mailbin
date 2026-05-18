@@ -26,6 +26,27 @@ jobs:
         run: |
           INTENT='<intent-filter><action android:name="android.intent.action.VIEW"/><category android:name="android.intent.category.DEFAULT"/><category android:name="android.intent.category.BROWSABLE"/><data android:scheme="mailbin"/></intent-filter>'
           sed -i "s|</activity>|${INTENT}</activity>|" android/app/src/main/AndroidManifest.xml
+      - name: Inject Mailbin app icon (emergency bin on beige)
+        run: |
+          RES="android/app/src/main/res"
+          # Legacy launcher icons (used pre-Android-8 + as fallback)
+          for entry in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+            name="${entry%%:*}"; size="${entry##*:}"
+            convert resources/icon.png -resize ${size}x${size} "$RES/mipmap-$name/ic_launcher.png"
+            convert resources/icon.png -resize ${size}x${size} "$RES/mipmap-$name/ic_launcher_round.png"
+          done
+          # Adaptive icon foreground (Android 8+)
+          for entry in mdpi:108 hdpi:162 xhdpi:216 xxhdpi:324 xxxhdpi:432; do
+            name="${entry%%:*}"; size="${entry##*:}"
+            convert resources/icon-foreground.png -resize ${size}x${size} "$RES/mipmap-$name/ic_launcher_foreground.png"
+          done
+          # Adaptive icon background = solid beige (#f5f0e8)
+          cat > "$RES/drawable/ic_launcher_background.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+            <solid android:color="#f5f0e8"/>
+          </shape>
+          XML
       - run: npx cap sync android
       - run: cd android && ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
