@@ -41,7 +41,7 @@ export async function ensureCoreMemory(supabaseUrl: string, serviceRoleKey: stri
       headers: { ...supabaseHeaders(serviceRoleKey), Prefer: 'resolution=ignore-duplicates' },
       body: JSON.stringify({
         user_id: userId,
-        memory_text: '',
+        custom_rules: [],
       }),
     },
   );
@@ -102,13 +102,13 @@ export async function upsertEmail(supabaseUrl: string, serviceRoleKey: string, e
   return true;
 }
 
-export async function updateLastSyncedAt(supabaseUrl: string, serviceRoleKey: string, connectionId: string): Promise<boolean> {
+export async function updateLastSyncedAt(supabaseUrl: string, serviceRoleKey: string, connectionId: string, timestamp?: string): Promise<boolean> {
   const response = await fetch(
     `${supabaseUrl}/rest/v1/gmail_connections?id=eq.${connectionId}`,
     {
       method: 'PATCH',
       headers: supabaseHeaders(serviceRoleKey),
-      body: JSON.stringify({ last_synced_at: new Date().toISOString(), updated_at: new Date().toISOString() }),
+      body: JSON.stringify({ last_synced_at: timestamp ?? new Date().toISOString(), updated_at: new Date().toISOString() }),
     },
   );
 

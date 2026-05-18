@@ -4,7 +4,10 @@ import type { BinId, MailItem, CoreMemory } from './types';
 import { supabase } from './supabase';
 import { log, logWeird } from './logger';
 import { Dropdown } from './Dropdown';
-import { Settings, X, RefreshCw, ArrowUp } from 'lucide-react';
+import { Settings, X, RefreshCw, ArrowUp, Loader2, Check } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import { Browser } from '@capacitor/browser';
+import { App as CapacitorApp } from '@capacitor/app';
 
 const binSpeech: Record<BinId, string> = {
   emergency: 'I only eat panic mail.',
@@ -13,14 +16,16 @@ const binSpeech: Record<BinId, string> = {
 };
 
 const binEmptyMessages: Record<BinId, string> = {
-  emergency: 'Nothing urgent. You survived another day.',
-  info: 'Zero info. Your brain is safe.',
-  maybe: 'Nothing to maybe about. Pure peace.',
+  emergency: 'No unread files. Bin is sleeping — do not wake him up.',
+  info: 'No unread files. Bin is sleeping — do not wake him up.',
+  maybe: 'No unread files. Bin is sleeping — do not wake him up.',
 };
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabaseFunctionsUrl = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
+
+const isNative = Capacitor.isNativePlatform();
 
 async function getAuthHeaders(): Promise<HeadersInit> {
   const { data } = await supabase.auth.getSession();
@@ -53,6 +58,7 @@ export function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState(0);
   const [newEmailCount, setNewEmailCount] = useState(0);
+  const [floatingMessage, setFloatingMessage] = useState<string | null>(null);
   const [coreMemory, setCoreMemory] = useState<CoreMemory | null>(null);
   const [showPreferences, setShowPreferences] = useState(false);
   const [savingPreferences, setSavingPreferences] = useState(false);
@@ -97,18 +103,12 @@ export function App() {
     return () => controller.abort();
   }, []);
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+  function processOAuthParams(params: URLSearchParams) {
     const gmail = params.get('gmail');
     const reason = params.get('reason');
 
-    const allParams = [...params.entries()];
-    const nonGmailParams = allParams.filter(([k]) => k !== 'gmail' && k !== 'reason' && k !== 'accessToken' && k !== 'refreshToken');
-    if (nonGmailParams.length > 0) {
-      logWeird('OAuth callback has unexpected query params', Object.fromEntries(nonGmailParams));
-    }
-
     if (gmail === 'connected') {
+      setIsConnectingGmail(false);
       const accessToken = params.get('accessToken');
       const refreshToken = params.get('refreshToken');
 
@@ -129,7 +129,6 @@ export function App() {
             loadCoreMemory();
             triggerSync();
           }
-          window.history.replaceState({}, '', window.location.pathname + window.location.hash);
         });
       }
       return;
@@ -137,8 +136,23 @@ export function App() {
 
     if (gmail === 'error') {
       setGmailStatus(`Gmail connect failed: ${reason ?? 'unknown_error'}`);
-      window.history.replaceState({}, '', window.location.pathname + window.location.hash);
     }
+  }
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    processOAuthParams(params);
+    window.history.replaceState({}, '', window.location.pathname + window.location.hash);
+  }, []);
+
+  useEffect(() => {
+    if (!isNative) return;
+    CapacitorApp.addListener('appUrlOpen', (event) => {
+      const url = new URL(event.url);
+      if (url.protocol === 'mailbin:') {
+        processOAuthParams(url.searchParams);
+      }
+    });
   }, []);
 
   useEffect(() => {
@@ -299,12 +313,14 @@ export function App() {
   const activeMails = sourceMails.filter((mail) => !dismissedMailIds.includes(mail.id));
   const currentBinStatus = selectedBin ? binStatuses[selectedBin] : 'idle';
 
-  const supabaseStatusText = {
-    missing: 'Fill .env',
-    checking: 'Checking Supabase...',
-    ready: 'Supabase connected',
-    error: 'Supabase check failed',
-  }[supabaseStatus];
+  function getGmailStatusState(): 'checking' | 'connected' | 'error' | 'idle' {
+    if (isConnectingGmail) return 'checking';
+    if (isGmailConnected) return 'connected';
+    if (gmailStatus && gmailStatus.includes('failed')) return 'error';
+    return 'idle';
+  }
+
+  const gmailStatusState = getGmailStatusState();
 
   function handleBinClick(id: BinId) {
     setPressedBin(id);
@@ -322,7 +338,14 @@ export function App() {
       return;
     }
     setIsConnectingGmail(true);
-    window.location.href = `${supabaseFunctionsUrl}/gmail-oauth-start`;
+    const oauthUrl = `${supabaseFunctionsUrl}/gmail-oauth-start?redirect_uri=mailbin://callback`;
+    if (isNative) {
+      Browser.open({ url: oauthUrl }).catch(() => {
+        window.location.href = oauthUrl;
+      });
+    } else {
+      window.location.href = oauthUrl;
+    }
   }
 
   function handleMailClick(id: string) {
@@ -368,25 +391,7 @@ export function App() {
               })}
             />
           ))}
-          <label className="preferences-label">
-            Attachment size limit (KB) — total across all files. Emails over this get marked important
-            <input
-              type="number"
-              className="preferences-input"
-              min={1}
-              max={10000}
-              value={coreMemory?.attachmentMaxSizeKb ?? 100}
-              onChange={(e) => setCoreMemory((prev) => prev ? { ...prev, attachmentMaxSizeKb: Number(e.target.value) } : null)}
-            />
-          </label>
-          <label className="preferences-label preferences-toggle">
-            <input
-              type="checkbox"
-              checked={coreMemory?.sendAttachmentsToAi ?? false}
-              onChange={(e) => setCoreMemory((prev) => prev ? { ...prev, sendAttachmentsToAi: e.target.checked } : null)}
-            />
-            Send attachments to AI
-          </label>
+
           {preferencesError ? <p className="preferences-error">{preferencesError}</p> : null}
           <button className="preferences-save" type="submit" disabled={savingPreferences}>
             {savingPreferences ? 'Saving...' : 'Save'}
@@ -443,8 +448,11 @@ export function App() {
 
           <section className="mail-list" aria-label={`${activeBin.title} mail list`} ref={mailListRef}>
             {currentBinStatus === 'empty' ? (
-              <div className="empty-state" onClick={() => { if (selectedBin) gmailFetch(selectedBin); }}>
+              <div className="empty-state" onClick={() => { setFloatingMessage('No unread mail — bin is sleeping 😴'); setTimeout(() => setFloatingMessage(null), 1500); }}>
                 <img className="empty-state-image" src={activeBin.sleepyImage} alt={`${activeBin.title} bin sleeping`} />
+                {floatingMessage ? (
+                  <div className="floating-toast">{floatingMessage}</div>
+                ) : null}
                 <p className="empty-state-message" style={{ '--accent': activeBin.accent } as CSSProperties}>
                   {binEmptyMessages[activeBin.id]}
                 </p>
@@ -466,7 +474,22 @@ export function App() {
                   {mail.aiFromWho ? <span className="mail-from-who">{mail.aiFromWho}</span> : null}
                   {mail.isCustomized ? <span className="customized-badge">customized</span> : null}
                 </div>
-                <p className="mail-summary">{mail.aiSummary || mail.summary}</p>
+                <div className="mail-summary-row">
+                  <p className="mail-summary">{mail.aiSummary || mail.summary}</p>
+                  <span
+                    className="open-gmail"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (isNative) {
+                        Browser.open({ url: mail.gmailUrl }).catch(() => window.open(mail.gmailUrl, '_blank'));
+                      } else {
+                        window.open(mail.gmailUrl, '_blank');
+                      }
+                    }}
+                  >
+                    Open
+                  </span>
+                </div>
                 {mail.attachments && mail.attachments.length > 0 ? (
                     <div className="mail-attachments">
                       {mail.attachments.map((att) => (
@@ -501,28 +524,29 @@ export function App() {
           <Settings size={28} />
         </button>
 
-        {isGmailConnected ? (
-          <button className="edit-preferences-button" onClick={() => setShowPreferences(true)} type="button">
-            Edit preferences
+        {!isGmailConnected ? (
+          <button className="connect-gmail-button" onClick={handleConnectGmail} type="button">
+            Connect Gmail
           </button>
         ) : null}
 
-        <button className="connect-gmail-button" onClick={handleConnectGmail} type="button">
-          {isGmailConnected ? 'Open Gmail bin' : 'Connect Gmail'}
-        </button>
-
-        <div className={`supabase-status is-${supabaseStatus}`}>
-          {supabaseStatusText}
+        <div className="status-pills">
+          <span className={`status-pill is-${supabaseStatus}`}>
+            <span className="status-pill-text">Server{supabaseStatus === 'checking' ? '?' : ''}</span>
+            {supabaseStatus === 'checking' ? <Loader2 size={12} className="spinner" /> : null}
+            {supabaseStatus === 'ready' ? <Check size={12} /> : null}
+            {supabaseStatus === 'error' || supabaseStatus === 'missing' ? <X size={12} /> : null}
+          </span>
+          <span className={`status-pill is-gmail-${gmailStatusState}`}>
+            <span className="status-pill-text">Gmail{gmailStatusState === 'checking' ? '?' : ''}</span>
+            {gmailStatusState === 'checking' ? <Loader2 size={12} className="spinner" /> : null}
+            {gmailStatusState === 'connected' ? <Check size={12} /> : null}
+            {gmailStatusState === 'error' ? <X size={12} /> : null}
+          </span>
         </div>
 
-        {gmailStatus ? (
-          <div className={`gmail-status ${gmailStatus.includes('failed') ? 'is-error' : 'is-ready'}`}>
-            {gmailStatus}
-          </div>
-        ) : null}
-
         {isSyncing ? (
-          <div className="gmail-status is-ready sync-indicator-home">
+          <div className="sync-indicator-home">
             <RefreshCw size={14} className="sync-spinner" />
             {syncProgress > 0 ? `Synced ${syncProgress} emails...` : 'Syncing emails...'}
           </div>

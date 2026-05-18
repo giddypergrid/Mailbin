@@ -99,8 +99,8 @@ const readCookie = (req: Request, name: string) => {
   return cookie ? decodeURIComponent(cookie.slice(name.length + 1)) : null;
 };
 
-const redirect = (frontendUrl: string, params: Record<string, string>) => {
-  const url = new URL(frontendUrl);
+const redirect = (finalRedirectUrl: string, params: Record<string, string>) => {
+  const url = new URL(finalRedirectUrl);
 
   Object.entries(params).forEach(([key, value]) => {
     url.searchParams.set(key, value);
@@ -163,19 +163,25 @@ Deno.serve(async (req: Request) => {
     return corsResponse;
   }
 
-  const frontendUrl = requireEnv('FRONTEND_URL');
+  const defaultRedirectUrl = requireEnv('FRONTEND_URL');
 
   try {
     const requestUrl = new URL(req.url);
     //Google returns the code and state as query parameters to the redirect URI
     const code = requestUrl.searchParams.get('code');
-    const OauthState = requestUrl.searchParams.get('state');
-    const expectedState = readCookie(req, 'OauthState');
+    const stateStr = requestUrl.searchParams.get('state') ?? '';
     const error = requestUrl.searchParams.get('error');
+
+    const pipeSeparator = stateStr.indexOf('||');
+    const OauthState = pipeSeparator !== -1 ? stateStr.slice(0, pipeSeparator) : stateStr;
+    const redirectUriOverride = pipeSeparator !== -1 ? stateStr.slice(pipeSeparator + 2) : null;
+    const finalRedirectUrl = redirectUriOverride ?? defaultRedirectUrl;
+
+    const expectedState = readCookie(req, 'OauthState');
 
     if (error) {
       log('OAUTH-CALLBACK', 'Google returned error', { error });
-      return redirect(frontendUrl, { gmail: 'error', reason: error });
+      return redirect(finalRedirectUrl, { gmail: 'error', reason: error });
     }
     //Need to check if coockie state matches Oauth returned state.
     if (!code || !OauthState || !expectedState || OauthState !== expectedState) {
@@ -187,7 +193,7 @@ Deno.serve(async (req: Request) => {
         expectedState,
         allCookies: req.headers.get('Cookie'),
       });
-      return redirect(frontendUrl, { gmail: 'error', reason: 'invalid_state' });
+      return redirect(finalRedirectUrl, { gmail: 'error', reason: 'invalid_state' });
     }
 
     const clientId = requireEnv('GOOGLE_CLIENT_ID');
@@ -214,7 +220,7 @@ Deno.serve(async (req: Request) => {
         error: tokenJson.error,
         error_description: tokenJson.error_description,
       });
-      return redirect(frontendUrl, {
+      return redirect(finalRedirectUrl, {
         gmail: 'error',
         reason: tokenJson.error ?? 'token_exchange_failed',
       });
@@ -226,7 +232,7 @@ Deno.serve(async (req: Request) => {
 
     if (!email) {
       logWeird('OAUTH-CALLBACK', 'Email not found in id_token', { hasIdToken: !!tokenJson.id_token });
-      return redirect(frontendUrl, { gmail: 'error', reason: 'email_not_found' });
+      return redirect(finalRedirectUrl, { gmail: 'error', reason: 'email_not_found' });
     }
 
     log('OAUTH-CALLBACK', 'Token exchange succeeded', { email });
@@ -238,13 +244,13 @@ Deno.serve(async (req: Request) => {
       supabaseUser.id,
     );
 
-    return redirect(frontendUrl, {
+    return redirect(finalRedirectUrl, {
       gmail: 'connected',
       accessToken: supabaseUser.accessToken,
       refreshToken: supabaseUser.refreshToken,
     });
   } catch (error) {
-    return redirect(frontendUrl, {
+    return redirect(finalRedirectUrl, {
       gmail: 'error',
       reason: error instanceof Error ? error.message : 'oauth_callback_failed',
     });

@@ -18,21 +18,27 @@ export const CONFIG = {
     apiKey: Deno.env.get('GEMINI_API_KEY') ?? '',
     model: envString('MAILBIN_GEMINI_MODEL', 'gemini-2.5-flash-lite'),
   },
-  summaryMaxWords: envNumber('MAILBIN_SUMMARY_MAX_WORDS', 10),
   coreMemory: {
-    defaultText: envString('MAILBIN_DEFAULT_CORE_MEMORY', [
+    maxRules: 5,
+    maxRuleLength: 20,
+    defaultRules: [
       'Promotional emails from shopping sites, newsletters, marketing → maybe.',
       'Legal documents, bank statements, tax info, government notices → emergency.',
       'Work emails from colleagues and managers → emergency.',
       'Social media notifications → info.',
       'Meeting invites, calendar reminders → info.',
-    ].join('\n')),
+    ],
     maxLength: envNumber('MAILBIN_CORE_MEMORY_MAX_LENGTH', 5000),
-    summaryWordsMin: envNumber('MAILBIN_SUMMARY_WORDS_MIN', 1),
-    summaryWordsMax: envNumber('MAILBIN_SUMMARY_WORDS_MAX', 50),
     attachmentKbMin: envNumber('MAILBIN_ATTACHMENT_KB_MIN', 1),
     attachmentKbMax: envNumber('MAILBIN_ATTACHMENT_KB_MAX', 1000),
     attachmentKbDefault: envNumber('MAILBIN_ATTACHMENT_KB_DEFAULT', 100),
+  },
+  sync: {
+    baselineMax: envNumber('MAILBIN_SYNC_BASELINE_MAX', 50),
+    incrementalMax: envNumber('MAILBIN_SYNC_INCREMENTAL_MAX', 200),
+    pollIntervalMs: envNumber('MAILBIN_SYNC_POLL_INTERVAL_MS', 2000),
+    retryDelayMs: envNumber('MAILBIN_SYNC_RETRY_DELAY_MS', 5000),
+    maxRetries: envNumber('MAILBIN_SYNC_MAX_RETRIES', 3),
   },
   log: {
     level: envString('MAILBIN_LOG_LEVEL', 'info'),
