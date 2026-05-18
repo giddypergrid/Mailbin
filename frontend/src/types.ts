@@ -22,6 +22,7 @@ export type MailItem = {
   attachmentTotalKb?: number;
   attachmentWithinLimit?: boolean;
   skippedAttachments?: number;
+  isCustomized?: boolean;
   hasLargeAttachments?: boolean;
 };
 
@@ -30,12 +31,12 @@ export type BinConfig = {
   title: string;
   subtitle: string;
   image: string;
+  sleepyImage: string;
   accent: string;
 };
 
 export type CoreMemory = {
-  memoryText: string;
-  summaryMaxWords: number;
+  customRules: string[];
   attachmentMaxSizeKb: number;
   sendAttachmentsToAi: boolean;
 };

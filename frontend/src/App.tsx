@@ -4,12 +4,18 @@ import type { BinId, MailItem, CoreMemory } from './types';
 import { supabase } from './supabase';
 import { log, logWeird } from './logger';
 import { Dropdown } from './Dropdown';
-import { Settings, X } from 'lucide-react';
+import { Settings, X, RefreshCw, ArrowUp } from 'lucide-react';
 
 const binSpeech: Record<BinId, string> = {
   emergency: 'I only eat panic mail.',
   info: 'Tiny useful things go here.',
   maybe: 'Meh. I will hold the boring stuff.',
+};
+
+const binEmptyMessages: Record<BinId, string> = {
+  emergency: 'Nothing urgent. You survived another day.',
+  info: 'Zero info. Your brain is safe.',
+  maybe: 'Nothing to maybe about. Pure peace.',
 };
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -45,6 +51,8 @@ export function App() {
   const [isGmailConnected, setIsGmailConnected] = useState(false);
   const [isConnectingGmail, setIsConnectingGmail] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState(0);
+  const [newEmailCount, setNewEmailCount] = useState(0);
   const [coreMemory, setCoreMemory] = useState<CoreMemory | null>(null);
   const [showPreferences, setShowPreferences] = useState(false);
   const [savingPreferences, setSavingPreferences] = useState(false);
@@ -164,15 +172,29 @@ export function App() {
   }, []);
 
   const triggerSync = useCallback(async () => {
-    if (!supabaseFunctionsUrl) return;
+    if (!supabaseFunctionsUrl || syncActiveRef.current) return;
+    syncActiveRef.current = true;
     setIsSyncing(true);
+    setSyncProgress(0);
+    setNewEmailCount(0);
     try {
-      await fetch(`${supabaseFunctionsUrl}/gmail-sync`, { headers: await getAuthHeaders() });
+      let hasMore = true;
+      while (hasMore) {
+        const response = await fetch(`${supabaseFunctionsUrl}/gmail-sync`, { headers: await getAuthHeaders() });
+        const data = await response.json() as { syncedCount?: number; hasMore?: boolean; isBaseline?: boolean };
+        const newlySynced = data.syncedCount ?? 0;
+        setSyncProgress((prev) => prev + newlySynced);
+        if (newlySynced > 0) setNewEmailCount((prev) => prev + newlySynced);
+        hasMore = data.hasMore ?? false;
+        if (hasMore) await new Promise((r) => setTimeout(r, 2000));
+      }
     } catch {
     } finally {
+      syncActiveRef.current = false;
       setIsSyncing(false);
+      setSyncProgress(0);
     }
-  }, []);
+  }, [supabaseFunctionsUrl]);
 
   const gmailFetch = useCallback(async (binId: BinId, cursor?: string) => {
     if (!supabaseFunctionsUrl) return;
@@ -206,6 +228,11 @@ export function App() {
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (!selectedBin || !isSyncing) return;
+    gmailFetch(selectedBin);
+  }, [syncProgress, selectedBin, isSyncing, gmailFetch]);
 
   useEffect(() => {
     if (!selectedBin || !isGmailConnected) return;
@@ -253,6 +280,7 @@ export function App() {
   }, []);
 
   const mailListRef = useRef<HTMLElement>(null);
+  const syncActiveRef = useRef(false);
 
   useEffect(() => {
     const el = mailListRef.current;
@@ -310,7 +338,7 @@ export function App() {
     <div className="preferences-overlay" onClick={() => setShowPreferences(false)}>
       <div className="preferences-panel" onClick={(e) => e.stopPropagation()}>
         <div className="preferences-header">
-          <h2>Core Memory</h2>
+          <h2>Preferences</h2>
           <button className="preferences-close" onClick={() => setShowPreferences(false)} type="button">
             <X size={18} />
           </button>
@@ -323,27 +351,23 @@ export function App() {
             saveCoreMemory(coreMemory);
           }}
         >
-          <label className="preferences-label">
-            Classification rules
-            <textarea
-              className="preferences-textarea"
-              rows={5}
-              placeholder="Describe what goes where — e.g. promos from shops → maybe, bank statements → emergency"
-              value={coreMemory?.memoryText ?? ''}
-              onChange={(e) => setCoreMemory((prev) => prev ? { ...prev, memoryText: e.target.value } : null)}
-            />
-          </label>
-          <label className="preferences-label">
-            Summary word limit
+          <p className="preferences-section-title">Custom classification rules (up to 5, each ≤20 words)</p>
+          {Array.from({ length: 5 }).map((_, index) => (
             <input
-              type="number"
-              className="preferences-input"
-              min={1}
-              max={100}
-              value={coreMemory?.summaryMaxWords ?? 10}
-              onChange={(e) => setCoreMemory((prev) => prev ? { ...prev, summaryMaxWords: Number(e.target.value) } : null)}
+              key={index}
+              type="text"
+              className="preferences-rule-input"
+              placeholder={`Rule ${index + 1} — e.g. "Temu promos → emergency"`}
+              value={coreMemory?.customRules[index] ?? ''}
+              maxLength={20}
+              onChange={(e) => setCoreMemory((prev) => {
+                if (!prev) return null;
+                const rules = [...prev.customRules];
+                rules[index] = e.target.value;
+                return { ...prev, customRules: rules };
+              })}
             />
-          </label>
+          ))}
           <label className="preferences-label">
             Attachment size limit (KB) — total across all files. Emails over this get marked important
             <input
@@ -388,15 +412,43 @@ export function App() {
             </div>
           </section>
 
-          <section className="mail-list" aria-label={`${activeBin.title} mail list`} ref={mailListRef}>
+          <button
+            className="new-emails-button"
+            type="button"
+            onClick={() => {
+              mailListRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+              if (newEmailCount > 0 && selectedBin) {
+                setNewEmailCount(0);
+                gmailFetch(selectedBin);
+              }
+            }}
+          >
             {isSyncing ? (
-              <p className="mail-list-status is-info">Syncing...</p>
-            ) : null}
-            {currentBinStatus === 'loading' ? (
-              <p className="mail-list-status">Loading emails...</p>
-            ) : null}
+              <>
+                <RefreshCw size={14} className="sync-spinner" />
+                Syncing...
+              </>
+            ) : newEmailCount > 0 ? (
+              <>
+                <ArrowUp size={14} />
+                New Message
+              </>
+            ) : (
+              <>
+                <ArrowUp size={14} />
+                Back to top
+              </>
+            )}
+          </button>
+
+          <section className="mail-list" aria-label={`${activeBin.title} mail list`} ref={mailListRef}>
             {currentBinStatus === 'empty' ? (
-              <p className="mail-list-status">No emails in this bin yet.</p>
+              <div className="empty-state" onClick={() => { if (selectedBin) gmailFetch(selectedBin); }}>
+                <img className="empty-state-image" src={activeBin.sleepyImage} alt={`${activeBin.title} bin sleeping`} />
+                <p className="empty-state-message" style={{ '--accent': activeBin.accent } as CSSProperties}>
+                  {binEmptyMessages[activeBin.id]}
+                </p>
+              </div>
             ) : null}
             {currentBinStatus === 'error' ? (
               <p className="mail-list-status is-error">Could not load emails.</p>
@@ -412,6 +464,7 @@ export function App() {
                 <div className="mail-card-header">
                   <span className="mail-theme">{mail.aiTheme || mail.subject}</span>
                   {mail.aiFromWho ? <span className="mail-from-who">{mail.aiFromWho}</span> : null}
+                  {mail.isCustomized ? <span className="customized-badge">customized</span> : null}
                 </div>
                 <p className="mail-summary">{mail.aiSummary || mail.summary}</p>
                 {mail.attachments && mail.attachments.length > 0 ? (
@@ -429,7 +482,6 @@ export function App() {
                     </div>
                   ) : null}
                 </div>
-                <span>Done →</span>
               </button>
             ))}
             {currentBinStatus === 'ready' && binCursors[selectedBin!] ? (
@@ -446,7 +498,7 @@ export function App() {
       {preferencesPanel}
       <main className="app-shell home-shell">
         <button className="settings-button" type="button" aria-label="Settings" onClick={() => setShowPreferences(true)}>
-          <Settings size={20} />
+          <Settings size={28} />
         </button>
 
         {isGmailConnected ? (
@@ -470,7 +522,10 @@ export function App() {
         ) : null}
 
         {isSyncing ? (
-          <div className="gmail-status is-ready">Syncing emails...</div>
+          <div className="gmail-status is-ready sync-indicator-home">
+            <RefreshCw size={14} className="sync-spinner" />
+            {syncProgress > 0 ? `Synced ${syncProgress} emails...` : 'Syncing emails...'}
+          </div>
         ) : null}
 
         <section className="hero">
