@@ -23,21 +23,21 @@ a {
   width: min(900px, 100%);
   min-height: 100vh;
   margin: 0 auto;
-  padding: 24px;
+  padding: 16px;
 }
 
 .home-shell {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 6px;
   overflow: hidden;
   background: #f5f0e8;
 }
 
 .hero {
   z-index: 1;
-  padding-top: 54px;
+  padding-top: 42px;
   text-align: center;
 }
 
@@ -106,48 +106,63 @@ h1 {
   background: #c9b896;
 }
 
-.supabase-status {
+.status-pills {
   position: absolute;
-  top: 74px;
-  left: 24px;
+  top: 80px;
+  right: 22px;
   z-index: 2;
-  padding: 7px 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: 0 10px 26px rgba(62, 46, 31, 0.08);
-  color: #604c3f;
-  font-size: 0.78rem;
-  font-weight: 900;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.supabase-status.is-ready {
+.status-pill {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 2px solid;
+  font-size: 0.65rem;
+  font-weight: 800;
+  line-height: 1.15;
+  text-align: center;
+  background: transparent;
+}
+
+.status-pill-text {
+  display: block;
+}
+
+.status-pill.is-checking,
+.status-pill.is-gmail-checking {
+  border-color: #d4a72c;
+  color: #8a6d1b;
+}
+
+.status-pill.is-ready,
+.status-pill.is-gmail-connected {
+  border-color: #4a9b5e;
   color: #2d6a35;
 }
 
-.supabase-status.is-error,
-.supabase-status.is-missing {
+.status-pill.is-error,
+.status-pill.is-missing,
+.status-pill.is-gmail-error {
+  border-color: #c0392b;
   color: #a6362e;
 }
 
-.gmail-status {
-  position: absolute;
-  top: 108px;
-  left: 24px;
-  z-index: 2;
-  padding: 7px 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 10px 26px rgba(62, 46, 31, 0.08);
-  font-size: 0.78rem;
-  font-weight: 900;
+.status-pill.is-gmail-idle {
+  border-color: #b8b0a0;
+  color: #8b7a60;
 }
 
-.gmail-status.is-ready {
-  color: #2d6a35;
-}
-
-.gmail-status.is-error {
-  color: #a6362e;
+.status-pill .spinner {
+  animation: spin 1s linear infinite;
 }
 
 .bin-stage {
@@ -396,7 +411,22 @@ h1 {
   font-weight: 500;
 }
 
+.mail-summary-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+}
 
+.mail-summary-row .mail-summary {
+  flex: 1;
+}
+
+.mail-summary-row .open-gmail {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
 
 .dropdown {
   margin-bottom: 4px;
@@ -437,27 +467,25 @@ h1 {
   margin: 0;
 }
 
-.edit-preferences-button {
+.floating-toast {
   position: absolute;
-  top: 74px;
-  left: 24px;
-  z-index: 2;
-  padding: 8px 14px;
-  border: 0;
-  border-radius: 999px;
-  color: #4b3426;
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: 0 8px 20px rgba(62, 46, 31, 0.08);
-  cursor: pointer;
-  font-weight: 700;
-  font-size: 0.82rem;
+  top: -30px;
+  left: 50%;
+  translate: -50% 0;
+  background: #d4c5a9;
+  color: #333;
+  padding: 6px 14px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: floatUp 1.4s ease-out forwards;
 }
 
-.edit-preferences-button:hover,
-.edit-preferences-button:focus-visible {
-  outline: none;
-  background: rgba(255, 255, 255, 0.95);
-  box-shadow: 0 12px 28px rgba(62, 46, 31, 0.12);
+@keyframes floatUp {
+  0% { opacity: 1; translate: -50% 0; }
+  100% { opacity: 0; translate: -50% -40px; }
 }
 
 .mail-attachments {
@@ -657,15 +685,15 @@ h1 {
 
 @media (max-width: 680px) {
   .app-shell {
-    padding: 18px;
+    padding: 12px;
   }
 
   .home-shell {
-    gap: 6px;
+    gap: 4px;
   }
 
   .hero {
-    padding-top: 72px;
+    padding-top: 56px;
   }
 
   .bin-stage {
@@ -754,6 +782,7 @@ h1 {
 }
 
 .empty-state {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -832,4 +861,23 @@ h1 {
   color: #8b7a60;
   font-size: 0.65rem;
   font-weight: 500;
+}
+
+.open-gmail {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  background: #d4c5a9;
+  color: #333;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  line-height: 1.4;
+  user-select: none;
+}
+
+.open-gmail:hover {
+  opacity: 0.8;
 }

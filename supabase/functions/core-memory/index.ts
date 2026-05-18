@@ -8,10 +8,6 @@ declare const Deno: {
   serve(handler: (req: Request) => Response | Promise<Response>): void;
 };
 
-function getDefaultMemory(): string {
-  return CONFIG.coreMemory.defaultText;
-}
-
 const supabaseHeaders = (serviceRoleKey: string) => ({
   apikey: serviceRoleKey,
   Authorization: `Bearer ${serviceRoleKey}`,
@@ -51,8 +47,7 @@ Deno.serve(async (req: Request) => {
       if (rows.length === 0) {
         log('CORE-MEMORY', 'No row found — returning defaults', { userId });
         return jsonResponse({
-          memoryText: getDefaultMemory(),
-          summaryMaxWords: CONFIG.coreMemory.summaryWordsMax,
+          customRules: CONFIG.coreMemory.defaultRules,
           attachmentMaxSizeKb: CONFIG.coreMemory.attachmentKbDefault,
           sendAttachmentsToAi: false,
         });
@@ -63,8 +58,7 @@ Deno.serve(async (req: Request) => {
       log('CORE-MEMORY', 'Loaded', { userId });
 
       return jsonResponse({
-        memoryText: row.memory_text ?? '',
-        summaryMaxWords: row.summary_max_words ?? 10,
+        customRules: row.custom_rules ?? CONFIG.coreMemory.defaultRules,
         attachmentMaxSizeKb: row.attachment_max_size_kb ?? 100,
         sendAttachmentsToAi: row.send_attachments_to_ai ?? false,
       });
@@ -74,21 +68,24 @@ Deno.serve(async (req: Request) => {
       const body = await req.json();
       const updatePayload: Record<string, unknown> = { user_id: userId };
 
-      const memoryMaxLength = CONFIG.coreMemory.maxLength;
+      if (Array.isArray(body.customRules)) {
+        const maxRules = CONFIG.coreMemory.maxRules;
+        const maxRuleLength = CONFIG.coreMemory.maxRuleLength;
+        const sanitized = body.customRules
+          .filter((r: unknown) => typeof r === 'string')
+          .map((r: string) => r.trim())
+          .filter((r: string) => r.length > 0)
+          .slice(0, maxRules)
+          .map((r: string) => r.slice(0, maxRuleLength));
+        updatePayload.custom_rules = sanitized;
+      }
 
-      if (typeof body.memoryText === 'string') {
-        updatePayload.memory_text = body.memoryText.slice(0, memoryMaxLength);
-      }
-      if (typeof body.summaryMaxWords === 'number') {
-        const wordsMin = CONFIG.coreMemory.summaryWordsMin;
-        const wordsMax = CONFIG.coreMemory.summaryWordsMax;
-        updatePayload.summary_max_words = Math.min(Math.max(body.summaryMaxWords, wordsMin), wordsMax);
-      }
       if (typeof body.attachmentMaxSizeKb === 'number') {
         const kbMin = CONFIG.coreMemory.attachmentKbMin;
         const kbMax = CONFIG.coreMemory.attachmentKbMax;
         updatePayload.attachment_max_size_kb = Math.min(Math.max(body.attachmentMaxSizeKb, kbMin), kbMax);
       }
+
       if (typeof body.sendAttachmentsToAi === 'boolean') updatePayload.send_attachments_to_ai = body.sendAttachmentsToAi;
 
       updatePayload.updated_at = new Date().toISOString();

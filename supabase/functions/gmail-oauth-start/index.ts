@@ -29,11 +29,23 @@ Deno.serve((req: Request) => {
   try {
     const clientId = requireEnv('GOOGLE_CLIENT_ID');
     const redirectUri = requireEnv('GOOGLE_REDIRECT_URI');
+    const requestUrl = new URL(req.url);
+    const customRedirectParam = requestUrl.searchParams.get('redirect_uri');
     const existingState = readCookie(req, 'OauthState');
-    const OauthState = existingState ?? crypto.randomUUID();
+    const csrfToken = existingState ?? crypto.randomUUID();
+
+    const OauthState = customRedirectParam
+      ? `${csrfToken}||${customRedirectParam}`
+      : csrfToken;
+
     const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
 
-    log('OAUTH-START', 'Redirecting to Google consent', { OauthState, redirectUri, reusedExistingState: !!existingState });
+    log('OAUTH-START', 'Redirecting to Google consent', {
+      OauthState,
+      redirectUri,
+      customRedirect: customRedirectParam ?? 'none',
+      reusedExistingState: !!existingState,
+    });
 
     authUrl.searchParams.set('client_id', clientId);
     authUrl.searchParams.set('redirect_uri', redirectUri);
@@ -50,7 +62,7 @@ Deno.serve((req: Request) => {
       headers: {
         ...corsHeaders,
         Location: authUrl.toString(),
-        'Set-Cookie': `OauthState=${OauthState}; HttpOnly${secureCookie}; SameSite=Lax; Path=/; Max-Age=600`,
+        'Set-Cookie': `OauthState=${encodeURIComponent(OauthState)}; HttpOnly${secureCookie}; SameSite=Lax; Path=/; Max-Age=600`,
       },
     });
   } catch (error) {

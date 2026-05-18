@@ -10,28 +10,53 @@ export async function fetchMessageList(accessToken: string, limit: number, pageT
   listUrl.searchParams.set('q', query ?? 'in:inbox is:unread');
   if (pageToken) listUrl.searchParams.set('pageToken', pageToken);
 
-  const response = await fetch(listUrl, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  const json = await response.json() as GmailListResponse;
+  const maxRetries = CONFIG.sync.maxRetries;
+  const retryDelay = CONFIG.sync.retryDelayMs;
 
-  if (!response.ok) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const response = await fetch(listUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const json = await response.json() as GmailListResponse;
+
+    if (response.ok) return json;
+
+    if ((response.status === 429 || response.status === 503) && attempt < maxRetries) {
+      logWeird('GMAIL-CLIENT', 'Rate limited on list', { status: response.status, attempt, retryDelayMs: retryDelay });
+      await new Promise((r) => setTimeout(r, retryDelay));
+      continue;
+    }
+
     throw new Error('gmail_message_list_failed');
   }
 
-  return json;
+  throw new Error('gmail_message_list_failed');
 }
 
 export async function fetchMessageDetail(accessToken: string, messageId: string): Promise<{ ok: boolean; status: number; data: GmailMessageResponse }> {
-  const messageUrl = new URL(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}`);
-  messageUrl.searchParams.set('format', 'full');
+  const maxRetries = CONFIG.sync.maxRetries;
+  const retryDelay = CONFIG.sync.retryDelayMs;
 
-  const response = await fetch(messageUrl, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  const data = await response.json() as GmailMessageResponse;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const messageUrl = new URL(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}`);
+    messageUrl.searchParams.set('format', 'full');
 
-  return { ok: response.ok, status: response.status, data };
+    const response = await fetch(messageUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const data = await response.json() as GmailMessageResponse;
+
+    if (response.ok || (response.status !== 429 && response.status !== 503)) {
+      return { ok: response.ok, status: response.status, data };
+    }
+
+    if (attempt < maxRetries) {
+      logWeird('GMAIL-CLIENT', 'Rate limited on detail', { messageId: messageId.slice(0, 8), attempt, retryDelayMs: retryDelay });
+      await new Promise((r) => setTimeout(r, retryDelay));
+    }
+  }
+
+  return { ok: false, status: 429, data: {} as GmailMessageResponse };
 }
 
 export async function refreshAccessToken(clientId: string, clientSecret: string, refreshToken: string): Promise<{ accessToken: string; expiresAt: string | null } | { error: string }> {

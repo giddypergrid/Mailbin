@@ -50,9 +50,8 @@ export type GmailConnection = {
 };
 
 export type CoreMemoryRow = {
-  memory_text: string;
+  custom_rules: string[];
   attachment_max_size_kb: number;
-  summary_max_words: number;
   send_attachments_to_ai: boolean;
 };
 
@@ -61,6 +60,7 @@ export type ClassifiedEmail = {
   summary: string;
   theme: string;
   fromWho: string;
+  isCustomized: boolean;
 };
 
 export type GmailEmailRow = {
@@ -78,6 +78,7 @@ export type GmailEmailRow = {
   ai_from_who: string;
   has_attachments: boolean;
   attachment_total_kb: number;
+  is_customized: boolean;
   synced_at: string;
 };
 
@@ -97,5 +98,6 @@ export type BuiltMailItem = {
   attachmentTotalKb?: number;
   attachmentWithinLimit?: boolean;
   skippedAttachments?: number;
+  isCustomized?: boolean;
   hasLargeAttachments?: boolean;
 };

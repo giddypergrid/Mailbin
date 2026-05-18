@@ -48,7 +48,7 @@ function toMailItem(row: GmailEmailRow) {
     subject: row.subject,
     summary: row.summary,
     receivedAt: row.received_at ? new Date(row.received_at).toLocaleDateString('en', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '',
-    gmailUrl: `https://mail.google.com/mail/u/0/#inbox/${row.thread_id}`,
+    gmailUrl: `https://mail.google.com/mail/u/0/#inbox/${row.gmail_message_id}`,
     source: 'gmail',
     aiSummary: row.summary,
     aiTheme: row.ai_theme,

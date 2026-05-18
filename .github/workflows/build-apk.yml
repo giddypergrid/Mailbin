@@ -22,6 +22,10 @@ jobs:
           VITE_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdoc3JrcGdocnV2aGlicWp1eW1yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1NDE4NjMsImV4cCI6MjA5NDExNzg2M30.aHE9QL39UcSRJvw3P1bRGKTKzTbzQTNoD4RaOCe1XkE
           VITE_SUPABASE_FUNCTIONS_URL: https://ghsrkpghruvhibqjuymr.supabase.co/functions/v1
       - run: npx cap add android
+      - name: Add custom URL scheme intent-filter
+        run: |
+          INTENT='<intent-filter><action android:name="android.intent.action.VIEW"/><category android:name="android.intent.category.DEFAULT"/><category android:name="android.intent.category.BROWSABLE"/><data android:scheme="mailbin"/></intent-filter>'
+          sed -i "s|</activity>|${INTENT}</activity>|" android/app/src/main/AndroidManifest.xml
       - run: npx cap sync android
       - run: cd android && ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
