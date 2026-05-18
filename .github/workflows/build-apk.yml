@@ -28,17 +28,20 @@ jobs:
           sed -i "s|</activity>|${INTENT}</activity>|" android/app/src/main/AndroidManifest.xml
       - name: Inject Mailbin app icon (emergency bin on beige)
         run: |
+          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends imagemagick
+          # ImageMagick 7 prefers 'magick'; fall back to 'convert' for IM6
+          IM=$(command -v magick || command -v convert)
           RES="android/app/src/main/res"
           # Legacy launcher icons (used pre-Android-8 + as fallback)
           for entry in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
             name="${entry%%:*}"; size="${entry##*:}"
-            convert resources/icon.png -resize ${size}x${size} "$RES/mipmap-$name/ic_launcher.png"
-            convert resources/icon.png -resize ${size}x${size} "$RES/mipmap-$name/ic_launcher_round.png"
+            $IM resources/icon.png -resize ${size}x${size} "$RES/mipmap-$name/ic_launcher.png"
+            $IM resources/icon.png -resize ${size}x${size} "$RES/mipmap-$name/ic_launcher_round.png"
           done
           # Adaptive icon foreground (Android 8+)
           for entry in mdpi:108 hdpi:162 xhdpi:216 xxhdpi:324 xxxhdpi:432; do
             name="${entry%%:*}"; size="${entry##*:}"
-            convert resources/icon-foreground.png -resize ${size}x${size} "$RES/mipmap-$name/ic_launcher_foreground.png"
+            $IM resources/icon-foreground.png -resize ${size}x${size} "$RES/mipmap-$name/ic_launcher_foreground.png"
           done
           # Adaptive icon background = solid beige (#f5f0e8)
           cat > "$RES/drawable/ic_launcher_background.xml" <<'XML'
