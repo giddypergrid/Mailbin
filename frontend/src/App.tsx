@@ -373,13 +373,13 @@ export function App() {
       return;
     }
     setIsConnectingGmail(true);
-    const oauthUrl = `${supabaseFunctionsUrl}/gmail-oauth-start?redirect_uri=mailbin://callback`;
     if (isNative) {
-      Browser.open({ url: oauthUrl }).catch(() => {
-        window.location.href = oauthUrl;
+      const nativeOauthUrl = `${supabaseFunctionsUrl}/gmail-oauth-start?redirect_uri=${encodeURIComponent('mailbin://callback')}`;
+      Browser.open({ url: nativeOauthUrl }).catch(() => {
+        window.location.href = nativeOauthUrl;
       });
     } else {
-      window.location.href = oauthUrl;
+      window.location.href = `${supabaseFunctionsUrl}/gmail-oauth-start`;
     }
   }
 

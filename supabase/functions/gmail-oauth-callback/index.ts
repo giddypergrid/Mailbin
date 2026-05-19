@@ -184,7 +184,7 @@ Deno.serve(async (req: Request) => {
       return redirect(finalRedirectUrl, { gmail: 'error', reason: error });
     }
     //Need to check if coockie state matches Oauth returned state.
-    if (!code || !OauthState || !expectedState || OauthState !== expectedState) {
+    if (!code || !stateStr || !expectedState || stateStr !== expectedState) {
       logWeird('OAUTH-CALLBACK', 'State mismatch', {
         hasCode: !!code,
         hasOauthState: !!OauthState,
