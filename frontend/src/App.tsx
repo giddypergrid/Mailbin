@@ -166,6 +166,7 @@ export function App() {
     }
 
     if (gmail === 'error') {
+      setIsConnectingGmail(false);
       setGmailStatus(`Gmail connect failed: ${reason ?? 'unknown_error'}`);
     }
   }
