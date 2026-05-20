@@ -311,6 +311,17 @@ export function App() {
     }
   }, []);
 
+  const handleLogout = useCallback(async () => {
+    try {
+      await fetch(`${supabaseFunctionsUrl}/gmail-disconnect`, {
+        method: 'POST',
+        headers: await getAuthHeaders(),
+      });
+    } catch { /* best-effort — clear local session regardless */ }
+    await supabase.auth.signOut();
+    window.location.reload();
+  }, [supabaseFunctionsUrl]);
+
   const saveCoreMemory = useCallback(async (updated: CoreMemory) => {
     if (!supabaseFunctionsUrl) return;
     setSavingPreferences(true);
@@ -595,15 +606,15 @@ export function App() {
 
         <div className="board-tag">Instructions</div>
         <div className="board-rules">
-          <p className="board-rules-hint">Custom classification rules (up to 10, each ≤200 characters)</p>
-          {Array.from({ length: 10 }).map((_, index) => (
-            <input
+          <p className="board-rules-hint">Up to 5 rules, each ≤50 characters</p>
+          {Array.from({ length: 5 }).map((_, index) => (
+            <textarea
               key={index}
-              type="text"
+              rows={2}
               className="board-rule-input"
-              placeholder={`Rule ${index + 1} — e.g. "Temu promos → emergency"`}
+              placeholder={`Rule ${index + 1} — e.g. "LinkedIn → maybe"`}
               value={coreMemory?.customRules[index] ?? ''}
-              maxLength={200}
+              maxLength={50}
               onChange={(e) => setCoreMemory((prev) => {
                 if (!prev) return null;
                 const rules = [...prev.customRules];
@@ -613,8 +624,6 @@ export function App() {
             />
           ))}
         </div>
-
-        <div className="board-center" />
 
         <div className="board-tag">Preferences</div>
         <div className="board-preference-row">
@@ -632,17 +641,26 @@ export function App() {
         </div>
 
         {preferencesError ? <p className="preferences-error">{preferencesError}</p> : null}
-        <button
-          className="board-save"
-          type="button"
-          disabled={savingPreferences}
-          onClick={() => {
-            if (!coreMemory) return;
-            saveCoreMemory(coreMemory);
-          }}
-        >
-          {savingPreferences ? 'Saving...' : 'Save'}
-        </button>
+        <div className="board-actions">
+          <button
+            className="board-save"
+            type="button"
+            disabled={savingPreferences}
+            onClick={() => {
+              if (!coreMemory) return;
+              saveCoreMemory(coreMemory);
+            }}
+          >
+            {savingPreferences ? 'Saving...' : 'Save'}
+          </button>
+          <button
+            className="board-logout"
+            type="button"
+            onClick={handleLogout}
+          >
+            Log out
+          </button>
+        </div>
       </div>
     </div>
   ) : null;

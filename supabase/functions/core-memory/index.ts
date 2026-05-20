@@ -57,14 +57,11 @@ Deno.serve(async (req: Request) => {
 
       log('CORE-MEMORY', 'Loaded', { userId });
 
-      const rules = Array.isArray(row.custom_rules) && row.custom_rules.length > 0
-        ? row.custom_rules
-        : CONFIG.coreMemory.defaultRules;
       return jsonResponse({
-        customRules: rules,
+        customRules: Array.isArray(row.custom_rules) ? row.custom_rules : [],
         attachmentMaxSizeKb: row.attachment_max_size_kb ?? 100,
         sendAttachmentsToAi: row.send_attachments_to_ai ?? false,
-        markEmailsAsRead: row.mark_emails_as_read ?? true,
+        markEmailsAsRead: row.mark_emails_as_read ?? false,
       });
     }
 
