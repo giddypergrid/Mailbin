@@ -94,6 +94,7 @@ export function App() {
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
 
   const [onboardingStep, setOnboardingStep] = useState(0);
+  const [isAppLoading, setIsAppLoading] = useState(true);
 
   const [binEmailsMap, setBinEmailsMap] = useState<Record<BinId, MailItem[]>>({
     emergency: [], info: [], maybe: [],
@@ -327,6 +328,11 @@ export function App() {
     } finally {
       setSavingPreferences(false);
     }
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setIsAppLoading(false), 600);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const mailListRef = useRef<HTMLElement>(null);
@@ -704,6 +710,14 @@ export function App() {
     </div>
   ) : null;
 
+  if (isAppLoading) {
+    return (
+      <div className="loading-screen">
+        <h1 className="loading-wordmark">Mailbin</h1>
+      </div>
+    );
+  }
+
   if (activeBin) {
     return (
       <>
@@ -773,6 +787,7 @@ export function App() {
                     onPointerDown={(e) => handlePointerDown(e, mail.id)}
                     onPointerMove={handlePointerMove}
                     onPointerUp={handlePointerUp}
+                    onPointerCancel={handlePointerUp}
                     type="button"
                   >
                     <div className="mail-card-header">
@@ -794,7 +809,7 @@ export function App() {
                         onClick={(e) => {
                           e.stopPropagation();
                           if (isNative) {
-                            Browser.open({ url: mail.gmailUrl }).catch(() => window.open(mail.gmailUrl, '_blank'));
+                            window.open(mail.gmailUrl, '_system');
                           } else {
                             window.open(mail.gmailUrl, '_blank');
                           }
