@@ -1,5 +1,6 @@
 import { type GmailConnection, type CoreMemoryRow, type GmailEmailRow } from './types.ts';
 import { logWeird } from './logger.ts';
+import { CONFIG } from './config.ts';
 
 export const supabaseHeaders = (serviceRoleKey: string) => ({
   apikey: serviceRoleKey,
@@ -41,7 +42,7 @@ export async function ensureCoreMemory(supabaseUrl: string, serviceRoleKey: stri
       headers: { ...supabaseHeaders(serviceRoleKey), Prefer: 'resolution=ignore-duplicates' },
       body: JSON.stringify({
         user_id: userId,
-        custom_rules: [],
+        custom_rules: CONFIG.coreMemory.defaultRules,
         mark_emails_as_read: true,
       }),
     },

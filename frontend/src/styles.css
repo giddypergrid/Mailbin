@@ -19,30 +19,6 @@ a {
   font: inherit;
 }
 
-.loading-screen {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #f5f0e8;
-  z-index: 9999;
-}
-
-.loading-wordmark {
-  font-size: 2.2rem;
-  font-weight: 700;
-  color: #3e2e1f;
-  letter-spacing: -0.02em;
-  animation: loading-pulse 0.6s ease-in-out;
-}
-
-@keyframes loading-pulse {
-  0%   { opacity: 0; transform: translateY(6px); }
-  40%  { opacity: 1; transform: translateY(0); }
-  100% { opacity: 1; transform: translateY(0); }
-}
-
 .app-shell {
   width: min(900px, 100%);
   min-height: 100vh;
@@ -61,7 +37,7 @@ a {
 
 .hero {
   z-index: 1;
-  padding-top: 72px;
+  padding-top: 42px;
   text-align: center;
 }
 
@@ -87,21 +63,12 @@ h1 {
   letter-spacing: -0.07em;
 }
 
-.home-top-right {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  z-index: 2;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 6px;
-}
-
 .settings-button {
-  display: grid;
-  place-items: center;
-  padding: 10px;
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  z-index: 2;
+  padding: 14px;
   border: 0;
   color: #191919;
   background: transparent;
@@ -139,6 +106,15 @@ h1 {
   background: #c9b896;
 }
 
+.status-pills {
+  position: absolute;
+  top: 80px;
+  right: 22px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 
 .status-pill {
   display: inline-flex;
@@ -191,11 +167,11 @@ h1 {
 
 .bin-stage {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 36px;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 8px;
   isolation: isolate;
-  padding-bottom: 36px;
 }
 
 .bin-button {
@@ -228,23 +204,21 @@ h1 {
 
 .bin-button img {
   display: block;
-  height: 100%;
-  width: auto;
-  max-width: 100%;
+  width: 100%;
   object-fit: contain;
   pointer-events: none;
 }
 
-.bin-emergency,
-.bin-info,
-.bin-maybe {
-  height: min(20vh, 118px);
-  width: auto;
-  max-width: min(72vw, 300px);
+.bin-emergency {
+  width: min(28vw, 200px);
+}
+
+.bin-info {
+  width: min(28vw, 200px);
 }
 
 .bin-maybe {
-  margin-top: 16px;
+  width: min(38vw, 280px);
 }
 
 .bin-button span {
@@ -284,9 +258,7 @@ h1 {
 
 .folder-shell {
   background: #f5f0e8;
-  display: flex;
-  flex-direction: column;
-  height: 100dvh;
+  min-height: auto;
 }
 
 .folder-hero {
@@ -348,8 +320,7 @@ h1 {
   display: grid;
   gap: 10px;
   max-width: 720px;
-  flex: 1;
-  min-height: 0;
+  max-height: 390px;
   margin: 0 auto;
   overflow-y: auto;
   padding: 0 4px 18px;
@@ -379,7 +350,7 @@ h1 {
   position: relative;
   overflow: hidden;
   border-radius: 16px;
-  touch-action: pan-y;
+  touch-action: none;
 }
 
 .swipe-reveal {
@@ -394,7 +365,7 @@ h1 {
   z-index: 1;
   display: block;
   width: 100%;
-  padding: 14px 16px;
+  padding: 20px;
   border: 1px solid #d8d0c0;
   border-radius: 16px;
   color: inherit;
@@ -417,6 +388,8 @@ h1 {
   opacity: 0;
 }
 
+
+
 .mail-card h2 {
   margin-bottom: 0;
   font-size: 1.1rem;
@@ -429,22 +402,10 @@ h1 {
 
 .mail-card-header {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-bottom: 2px;
-}
-
-.mail-card-row1 {
-  display: flex;
   justify-content: space-between;
   align-items: baseline;
   gap: 8px;
-}
-
-.mail-card-row2 {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  margin-bottom: 2px;
 }
 
 .mail-theme {
@@ -666,27 +627,15 @@ h1 {
   color: #8b7a60;
 }
 
-.board-rule-wrapper {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
 .board-rule-input {
   width: 100%;
-  min-height: 56px;
   padding: 8px 10px;
   border: 1px solid #d8d5c8;
   border-radius: 6px;
   font-size: 0.85rem;
   font-family: inherit;
   background: #fffdf8;
-  resize: vertical;
   transition: border-color 0.15s;
-}
-
-.board-rule-input.is-over-limit {
-  border-color: #c0392b;
 }
 
 .board-rule-input:focus {
@@ -698,16 +647,13 @@ h1 {
   color: #a0a0a0;
 }
 
-.board-rule-word-count {
-  align-self: flex-end;
-  font-size: 0.72rem;
-  color: #8b7a60;
+.board-center {
+  flex: 1;
+  min-height: 60px;
+  border-radius: 14px;
+  border: 2px dashed #d8d0c0;
+  background: rgba(255, 255, 255, 0.35);
 }
-
-.board-rule-word-count.is-over {
-  color: #c0392b;
-}
-
 
 .board-preference-row {
   padding: 14px 16px;
@@ -1012,7 +958,23 @@ h1 {
   }
 
   .hero {
-    padding-top: 72px;
+    padding-top: 56px;
+  }
+
+  .bin-stage {
+    height: 240px;
+  }
+
+  .bin-emergency {
+    width: 46%;
+  }
+
+  .bin-info {
+    width: 46%;
+  }
+
+  .bin-maybe {
+    width: 70%;
   }
 
   .folder-bin-image {
