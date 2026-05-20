@@ -95,7 +95,9 @@ Deno.serve(async (req: Request) => {
 
     const coreMemory = await fetchCoreMemory(supabaseUrl, serviceRoleKey, userId);
     const maxAttachmentKb = coreMemory?.attachment_max_size_kb ?? CONFIG.coreMemory.attachmentKbDefault;
-    const customRules = coreMemory?.custom_rules ?? [];
+    const customRules = (coreMemory?.custom_rules && coreMemory.custom_rules.length > 0)
+      ? coreMemory.custom_rules
+      : CONFIG.coreMemory.defaultRules;
 
     const accessToken = await getValidAccessToken(connection, supabaseUrl, serviceRoleKey);
 

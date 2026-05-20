@@ -47,10 +47,9 @@ Deno.serve(async (req: Request) => {
       if (rows.length === 0) {
         log('CORE-MEMORY', 'No row found — returning defaults', { userId });
         return jsonResponse({
-          customRules: [],
+          customRules: CONFIG.coreMemory.defaultRules,
           attachmentMaxSizeKb: CONFIG.coreMemory.attachmentKbDefault,
           sendAttachmentsToAi: false,
-          markEmailsAsRead: true,
         });
       }
 
@@ -58,7 +57,9 @@ Deno.serve(async (req: Request) => {
 
       log('CORE-MEMORY', 'Loaded', { userId });
 
-      const rules = Array.isArray(row.custom_rules) ? row.custom_rules : [];
+      const rules = Array.isArray(row.custom_rules) && row.custom_rules.length > 0
+        ? row.custom_rules
+        : CONFIG.coreMemory.defaultRules;
       return jsonResponse({
         customRules: rules,
         attachmentMaxSizeKb: row.attachment_max_size_kb ?? 100,
@@ -73,13 +74,13 @@ Deno.serve(async (req: Request) => {
 
       if (Array.isArray(body.customRules)) {
         const maxRules = CONFIG.coreMemory.maxRules;
-        const maxWords = CONFIG.coreMemory.maxWordsPerRule;
+        const maxRuleLength = CONFIG.coreMemory.maxRuleLength;
         const sanitized = body.customRules
           .filter((r: unknown) => typeof r === 'string')
           .map((r: string) => r.trim())
           .filter((r: string) => r.length > 0)
           .slice(0, maxRules)
-          .map((r: string) => r.split(/\s+/).filter(Boolean).slice(0, maxWords).join(' '));
+          .map((r: string) => r.slice(0, maxRuleLength));
         updatePayload.custom_rules = sanitized;
       }
 
