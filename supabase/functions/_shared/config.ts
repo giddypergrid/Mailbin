@@ -11,13 +11,19 @@ export const CONFIG = {
   fetch: {
     limit: envNumber('MAILBIN_FETCH_LIMIT', 10),
     batchSize: envNumber('MAILBIN_FETCH_BATCH_SIZE', 5),
-    classifyBatchSize: envNumber('MAILBIN_CLASSIFY_BATCH_SIZE', 15),
+    // Per-call batch sizes. Baseline (first sync) packs aggressively so the
+    // whole 50-email seed fits in one Gemini call → 1 RPM used. Incremental
+    // uses a smaller batch since runs are more frequent.
+    classifyBatchSize: envNumber('MAILBIN_CLASSIFY_BATCH_SIZE', 30),
+    baselineClassifyBatchSize: envNumber('MAILBIN_BASELINE_CLASSIFY_BATCH_SIZE', 50),
     batchDelayMs: envNumber('MAILBIN_FETCH_BATCH_DELAY_MS', 300),
     tokenRefreshWindowMs: envNumber('MAILBIN_FETCH_TOKEN_REFRESH_WINDOW_MS', 60000),
   },
   gemini: {
     apiKey: Deno.env.get('GEMINI_API_KEY') ?? '',
-    model: envString('MAILBIN_GEMINI_MODEL', 'gemini-2.5-flash-lite'),
+    // gemini-2.5-flash free tier: 10 RPM, 250K TPM, 250 RPD.
+    model: envString('MAILBIN_GEMINI_MODEL', 'gemini-2.5-flash'),
+    rpm: envNumber('MAILBIN_GEMINI_RPM', 10),
   },
   coreMemory: {
     maxRules: 5,

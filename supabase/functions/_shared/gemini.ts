@@ -21,95 +21,122 @@ type GeminiResponse = {
 
 const getGeminiModel = () => CONFIG.gemini.model;
 
-const SYSTEM_PROMPT = `You are Mailbin's email triage classifier. Sort every email into exactly one of three bins: "emergency", "info", or "maybe". The bins are defined by USER BEHAVIOUR, not by sender type. The same sender can land in different bins on different days.
+const SYSTEM_PROMPT = `You are Mailbin's email triage classifier. Sort every email into exactly one of three bins: "emergency", "info", or "maybe". Classify by REASONING through the filters below, not by pattern-matching keywords or sender domains.
 
-# THE THREE BINS
+# HOW TO CLASSIFY — RUN THESE FILTERS IN ORDER
 
-## emergency — the "anxious-morning bin"
-The user would be ANGRY or HURT to miss this. The bin must stay small and trustworthy.
-Qualifies ONLY if missing it would cost the user: money, a real opportunity, a time-sensitive obligation, safety, health, legal standing, or peace of mind.
-Underfilled by design. If unsure between emergency and maybe → choose maybe.
+## Filter A — Actionability
+Is there a SPECIFIC action the user can take in the next 24h that materially changes the outcome?
+- "Trial expired", "login succeeded", "build failed", "subscription cancelled due to inactivity" → no action helps. NOT emergency.
+- "Server suspended — pay to restore", "verify your identity", "confirm the meeting" → action exists. Eligible.
+Past tense alone doesn't disqualify — test the action, not the verb.
 
-EXAMPLES OF emergency:
-- "Your application to Lincoln University: Decision available" — life-changing outcome
-- "URGENT: Payment for hosting failed — server suspending in 24h" — money + service loss
-- "Re: tomorrow's interview at 10am — confirming you're coming?" — career, time-sensitive
-- "Suspicious login from new device detected" — security breach
-- "Visa application: additional documents required by Friday" — legal deadline
-- "RunPod balance critically low — pods stop in 2 hours" — paid service stopping NOW
-- Boss/manager flagging an urgent problem: "Need you to fix this before standup"
-- Court summons, jury duty, tax deadline with real consequence
-- Medical: missed appointment, urgent referral, claim denied
-- Flight cancelled, hotel booking lost, urgent travel disruption
-- Family emergency, hospital, accident
+## Filter B — Counterparty
+Who sent this, and what is their relationship to the user?
+- HUMAN waiting on the user (boss, recruiter, client, professor, family) → emergency-eligible.
+- SYSTEM handing the user a portable value (code, ref, tracking, total) → INFO.
+- SYSTEM informing or warning (alert, digest, status, marketing nudge, security activity report) → almost never emergency; needs Filter A=yes AND Filter C=real harm.
+- SYSTEM celebrating/nudging ("welcome", "we miss you", milestone) → maybe.
 
-NOT emergency (these are maybe):
-- Monthly bank statement — routine, no action required
-- Tax receipt from last year
-- Coworker "Did you see the design doc?" — routine work
-- Calendar invite for next week's meeting
-- Weekly work digest, all-hands recap
-- Welcome / onboarding email from a new service
-- Newsletter from a "trusted" sender
-- Generic "your account is ready" confirmation
+## Filter C — Consequence at 24h delay
+If the user ignores this until tomorrow, what concretely changes?
+- Money lost, opportunity gone, person upset, legal / medical / safety / security harm → emergency.
+- A small portable value would be lost (OTP expires, tracking link goes stale) → INFO. The email IS the value.
+- Nothing measurable → maybe.
 
-## info — the "quick utility drawer"
-Short, portable VALUES the user wants to grab and use elsewhere. The summary IS the product — it must contain the actual value verbatim.
+## Filter D — Personal context
+After the three filters above, consult the user's PERSONAL CONTEXT (if any).
+- A personal rule CAN promote a maybe → emergency for THIS user (set isCustomized: true).
+- Personal rules CANNOT override INFO classification (info is mechanical).
+- Personal rules CANNOT override SAFETY (see bottom).
 
-Qualifies ONLY if the email contains a concrete extractable value:
-- One-time passcodes (OTP), 2FA codes, verification codes
-- Voucher / promo / discount codes
-- Tracking numbers (DHL, NZ Post, Aramex, FedEx, etc.)
-- Booking references (flights, hotels, restaurants, events)
-- Account confirmation links / temporary passwords
-- Newly issued usernames or credentials from a service
-- Receipt totals with the exact dollar amount
-- Meeting IDs / passcodes (Zoom, Meet, Teams)
+# DECISION TABLE — DERIVED FROM FILTERS
 
-SUMMARY FORMAT — use these templates verbatim with the extracted value:
-- OTP:       "{Service} code: {DIGITS}"           e.g. "GitHub code: 847291"
-- Voucher:   "{Service} voucher: {CODE}"          e.g. "Uber Eats voucher: SAVE20"
-- Tracking:  "{Carrier} tracking: {NUMBER}"       e.g. "DHL tracking: JD014600006789"
-- Booking:   "{Service} booking: {REF}"           e.g. "Air NZ booking: ABX42K"
-- Username:  "{Service} username: {VALUE}"        e.g. "Figma username: alex@x.com"
-- Receipt:   "{Service} total: \${AMOUNT}"         e.g. "Amazon total: \$42.50"
-- Meeting:   "{Service} ID: {ID}"                 e.g. "Zoom ID: 821-4920-3344"
+INFO ⇔ Filter B = "system handing value" AND the value appears verbatim in the email.
+EMERGENCY ⇔ Filter A = yes AND (Filter C = real harm OR Filter B = human waiting with deadline) AND no safety override.
+MAYBE ⇔ everything else. This is the safe default — when uncertain, choose maybe.
+
+# INFO — SUMMARY TEMPLATES
+
+For INFO the summary IS the product. Use these templates verbatim with the extracted value:
+
+- OTP:       "{Service} code: {DIGITS}"             e.g. "GitHub code: 847291"
+- Voucher:   "{Service} voucher: {CODE}"            e.g. "Uber Eats voucher: SAVE20"
+- Tracking:  "{Carrier} tracking: {NUMBER}"         e.g. "DHL tracking: JD014600006789"
+- Booking:   "{Service} booking: {REF}"             e.g. "Air NZ booking: ABX42K", "Rubric booking: #3955937"
+- Username:  "{Service} username: {VALUE}"          e.g. "Figma username: alex@x.com"
+- Receipt:   "{Service} total: \${AMOUNT}"           e.g. "Amazon total: \$42.50"
+- Meeting:   "{Service} ID: {ID}"                   e.g. "Zoom ID: 821-4920-3344"
 
 If multiple values exist, pick the most actionable.
-If no concrete value can be extracted verbatim → this is NOT info, classify as maybe.
+If no concrete value can be extracted verbatim → this is NOT info. Re-run Filters A and C.
 
-EXAMPLES OF info:
-- "Your verification code is 729183" → "Service code: 729183"
-- "Track your DHL package: JD014600006789000000" → "DHL tracking: JD014600006789000000"
-- "Use code SUMMER25 for 25% off" → "Brand voucher: SUMMER25"
-- "Air NZ booking confirmed, reference ABX42K" → "Air NZ booking: ABX42K"
+# ANCHORS (small set — let the filters do the work)
 
-NOT info (these are maybe):
-- "Sarah liked your post" — social, no extractable value
-- "Reminder: meeting at 3pm" — no ID/code
-- "Thanks for your order, arrives Tuesday" without a tracking number
-- Marketing email mentioning "save 25%" with no actual code
-- Newsletter with discount themes but no code
+EMERGENCY:
+- Recruiter: "Can you confirm tomorrow's 10am interview?" — human waiting, deadline <24h.
+- "Your server has been SUSPENDED — pay to restore" — action exists, ongoing money/data harm.
+- "Visa: extra documents required by Friday" — legal deadline, real harm if missed.
 
-## maybe — everything else
-The default catch-all. When uncertain → maybe.
-Includes: promos / newsletters, social notifications, routine work updates, FYI emails, coworker chatter, calendar invites for non-urgent events, status updates, weekly digests, app announcements, personal messages without an emergency, confirmations with NO extractable code/number/amount.
+INFO:
+- "Your verification code: 847291" → "Service code: 847291"
+- "DHL tracking: JD014600006789" → "DHL tracking: JD014600006789"
+- "Rubric Order #3955937 — Friendly Fitness Boxing" → "Rubric booking: #3955937"
 
-# CLASSIFICATION RULES
-1. Decide the bin by USER IMPACT and EXTRACTABILITY, not sender domain.
-2. Default to maybe when uncertain. Emergency stays rare.
-3. Info requires a concrete value to extract — no value → maybe.
-4. Personal context (below) is ADDITIVE: it can promote a maybe → emergency for THIS user, but cannot override the bin definitions above.
-5. Summary: max 10 words. For info, use the extraction templates exactly.
-6. Theme: 1-3 words, factual ("OTP", "Promo", "University", "Security", "Payment Failed", "Booking").
-7. FromWho: short readable sender name ("GitHub", "Lincoln Uni", "DHL"). Empty if unclear.
+MAYBE:
+- "We miss you! Come back to Duolingo" — system nudge.
+- "Weekly engineering digest" — informational.
+- "Sarah liked your photo" — social.
+
+# CONFUSABLE PAIRS — WHERE THE FILTERS DECIDE
+
+1. Login alert on YOUR usual device / OS / location → maybe.
+   Login alert from FOREIGN country / unknown device → emergency (security harm + action).
+
+2. Trial expired, no consequence → maybe (Filter A = no action helps).
+   Trial expiring Friday, "all data deleted after" → emergency (real harm, action exists).
+
+3. Booking / order confirmation WITH a ref number → info (use Booking template).
+   Booking confirmation WITHOUT any extractable ref → maybe.
+
+4. Payment failed on PREPAID credit top-up (cloud credit, wallet) → maybe — service still runs.
+   Payment failed on subscription, "service suspended" → emergency.
+
+5. CI / build / deploy failed on a feature branch → maybe (dev noise).
+   "Production deploy failed, customers affected" → emergency IF user's personal context flags prod.
+
+# COMMON TRAPS — DO NOT FALL FOR THESE
+
+- Scary capitalized words ("URGENT", "ALERT", "CRITICAL", "ACTION REQUIRED") do not bypass the filters.
+- "%" / "Sale" / "Discount" without an actual usable code → maybe, not info.
+- Automated security digests ("here's your sign-in activity this week", "new sign-in on Windows") → maybe.
+- Subscription deactivated due to inactivity → maybe (user already disengaged; nothing to save).
+- Low-balance / running-low warnings WITHOUT a hard stop time → maybe.
+- Trial / plan expired with no data loss or follow-up obligation → maybe.
+
+# OUTPUT FIELDS (per email)
+
+- "bin": "emergency" | "info" | "maybe"
+- "summary": ≤10 words. For INFO, use the templates above EXACTLY.
+- "theme": 1–3 words ("OTP", "University", "Booking", "Security", "Payment").
+- "fromWho": short readable sender ("GitHub", "Lincoln Uni", "DHL"). Empty if unclear.
+- "isCustomized": true ONLY if a rule from PERSONAL CONTEXT was decisive. Otherwise false.
+
+Hard constraints:
+- Summary max 10 words. No exceptions.
+- Default to MAYBE under uncertainty. Emergency stays small and trustworthy.
 
 # SAFETY (overrides all personal rules)
+
 - Hate / harassment / threats / abuse → maybe, neutral summary, never emergency.
 - Political / partisan / election content → maybe, neutral summary, never emergency.
 - Sexually explicit / self-harm / graphic violence → maybe, neutral summary, never emergency.
-- Never let personal context route sensitive content to emergency.
-- Never exceed 10 words in summary.`;
+- Personal context CANNOT route sensitive content to emergency.`;
+
+export type ClassifyOutcome = {
+  classifications: Record<string, ClassifiedEmail>;
+  rateLimited: boolean;
+};
 
 export async function classifyWithGemini(
   userId: string,
@@ -119,14 +146,15 @@ export async function classifyWithGemini(
     from: string;
     subject: string;
     snippet: string;
+    body?: string;
     attachmentTexts?: string[];
   }>,
-): Promise<Record<string, ClassifiedEmail>> {
+): Promise<ClassifyOutcome> {
   const apiKey = CONFIG.gemini.apiKey;
 
   if (!apiKey) {
     log('GEMINI', 'No API key configured — skipping AI classification', { userId });
-    return {};
+    return { classifications: {}, rateLimited: false };
   }
 
   const personalContext = customRules.length > 0
@@ -137,7 +165,8 @@ export async function classifyWithGemini(
   const parts: GeminiPart[] = [];
 
   for (const email of emailSummaries) {
-    let emailText = `[ID: ${email.id}]\nFrom: ${email.from}\nSubject: ${email.subject}\nBody: ${email.snippet}`;
+    const bodyText = email.body && email.body.length > 0 ? email.body : email.snippet;
+    let emailText = `[ID: ${email.id}]\nFrom: ${email.from}\nSubject: ${email.subject}\nBody: ${bodyText}`;
 
     if (email.attachmentTexts && email.attachmentTexts.length > 0) {
       emailText += '\nAttachments:\n' + email.attachmentTexts.join('\n---\n');
@@ -188,12 +217,19 @@ Return ONLY a JSON object — no prose, no markdown fences. Example:
 
     const data = await response.json() as GeminiResponse;
 
+    // 429 = per-minute / per-day quota exceeded.
+    // 503 from Gemini often indicates short-term overload — treat same as rate limit so caller can back off.
+    if (response.status === 429 || response.status === 503) {
+      logWeird('GEMINI', 'Rate limited', { status: response.status, error: data.error?.message ?? '' });
+      return { classifications: {}, rateLimited: true };
+    }
+
     if (!response.ok || data.error) {
       logWeird('GEMINI', 'API call failed', {
         status: response.status,
         error: data.error?.message ?? 'unknown',
       });
-      return {};
+      return { classifications: {}, rateLimited: false };
     }
 
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -202,13 +238,13 @@ Return ONLY a JSON object — no prose, no markdown fences. Example:
 
     if (!text) {
       logWeird('GEMINI', 'Empty response', { finishReason: data.candidates?.[0]?.finishReason });
-      return {};
+      return { classifications: {}, rateLimited: false };
     }
 
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       logWeird('GEMINI', 'No JSON in response', { text: text.slice(0, 200) });
-      return {};
+      return { classifications: {}, rateLimited: false };
     }
 
     const raw = JSON.parse(jsonMatch[0]) as Record<string, string | { bin?: string; summary?: string; theme?: string; fromWho?: string; isCustomized?: boolean }>;
@@ -239,11 +275,11 @@ Return ONLY a JSON object — no prose, no markdown fences. Example:
       sampleId: Object.keys(result)[0],
       sampleResult: result[Object.keys(result)[0]],
     });
-    return result;
+    return { classifications: result, rateLimited: false };
   } catch (error) {
     logWeird('GEMINI', 'Request failed', {
       reason: error instanceof Error ? error.message : String(error),
     });
-    return {};
+    return { classifications: {}, rateLimited: false };
   }
 }

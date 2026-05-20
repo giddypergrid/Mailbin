@@ -78,6 +78,7 @@ export function App() {
   const [isConnectingGmail, setIsConnectingGmail] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState(0);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [newEmailCount, setNewEmailCount] = useState(0);
   const [floatingMessage, setFloatingMessage] = useState<string | null>(null);
   const [isConnectHighlighted, setIsConnectHighlighted] = useState(false);
@@ -231,23 +232,45 @@ export function App() {
     syncActiveRef.current = true;
     setIsSyncing(true);
     setSyncProgress(0);
+    setSyncMessage(null);
     setNewEmailCount(0);
+    // Cap how many times we ride out a rate-limit cycle before giving up so
+    // the user is never stuck spinning forever.
+    let rateLimitRetries = 0;
+    const maxRateLimitRetries = 2;
     try {
       let hasMore = true;
       while (hasMore) {
         const response = await fetch(`${supabaseFunctionsUrl}/gmail-sync`, { headers: await getAuthHeaders() });
-        const data = await response.json() as { syncedCount?: number; hasMore?: boolean; isBaseline?: boolean };
+        const data = await response.json() as { syncedCount?: number; hasMore?: boolean; isBaseline?: boolean; rateLimited?: boolean };
         const newlySynced = data.syncedCount ?? 0;
         setSyncProgress((prev) => prev + newlySynced);
         if (newlySynced > 0) setNewEmailCount((prev) => prev + newlySynced);
+
+        if (data.rateLimited) {
+          if (rateLimitRetries >= maxRateLimitRetries) {
+            setSyncMessage('Gemini free tier exhausted. Come back later.');
+            break;
+          }
+          rateLimitRetries += 1;
+          setSyncMessage('Gemini free tier hit — waiting 60s before retrying…');
+          await new Promise((r) => setTimeout(r, 60_000));
+          setSyncMessage('Retrying…');
+          continue;
+        }
+
         hasMore = data.hasMore ?? false;
         if (hasMore) await new Promise((r) => setTimeout(r, 2000));
       }
-    } catch {
+    } catch (error) {
+      logWeird('sync loop crashed', { error: String(error) });
     } finally {
       syncActiveRef.current = false;
       setIsSyncing(false);
       setSyncProgress(0);
+      // Leave syncMessage on screen briefly so the user can read the final state
+      // (especially the "come back later" case); auto-clear after 5s.
+      setTimeout(() => setSyncMessage(null), 5_000);
     }
   }, [supabaseFunctionsUrl]);
 
@@ -423,14 +446,29 @@ export function App() {
 
   function fireMarkReadApi(mailId: string) {
     const gmailMessageId = mailId.replace('gmail-', '');
-    const markGmail = coreMemory?.markEmailsAsRead ?? true;
-    getAuthHeaders().then((headers) =>
-      fetch(`${supabaseFunctionsUrl}/mark-read`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gmailMessageId, markGmail }),
+    // Default false matches backend (mark_emails_as_read default off). Was true
+    // here — caused early swipes (before coreMemory loaded) to silently mark
+    // Gmail as read against the user's preference.
+    const markGmail = coreMemory?.markEmailsAsRead ?? false;
+    getAuthHeaders()
+      .then((headers) =>
+        fetch(`${supabaseFunctionsUrl}/mark-read`, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ gmailMessageId, markGmail }),
+        }),
+      )
+      .then(async (response) => {
+        if (!response.ok) {
+          logWeird('mark-read API non-OK', { status: response.status, gmailMessageId });
+          return;
+        }
+        const result = (await response.json().catch(() => null)) as { markedRead?: boolean; gmailMarkedRead?: boolean } | null;
+        if (result && (!result.markedRead || (markGmail && !result.gmailMarkedRead))) {
+          logWeird('mark-read partial failure', { gmailMessageId, markGmail, result });
+        }
       })
-    ).catch(() => { /* best-effort */ });
+      .catch((error) => logWeird('mark-read request failed', { gmailMessageId, error: String(error) }));
   }
 
   function handlePointerDown(e: React.PointerEvent, mailId: string) {
@@ -630,7 +668,7 @@ export function App() {
           <label className="board-checkbox-label">
             <input
               type="checkbox"
-              checked={coreMemory?.markEmailsAsRead ?? true}
+              checked={coreMemory?.markEmailsAsRead ?? false}
               onChange={(e) => setCoreMemory((prev) => {
                 if (!prev) return null;
                 return { ...prev, markEmailsAsRead: e.target.checked };
@@ -944,10 +982,14 @@ export function App() {
           </div>
         </div>
 
-        {isSyncing ? (
+        {isSyncing || syncMessage ? (
           <div className="sync-indicator-home">
             <RefreshCw size={14} className="sync-spinner" />
-            {syncProgress > 0 ? `Synced ${syncProgress} emails...` : 'Syncing emails...'}
+            {syncMessage
+              ? syncMessage
+              : syncProgress > 0
+                ? `Synced ${syncProgress} emails...`
+                : 'Syncing emails...'}
           </div>
         ) : null}
 
