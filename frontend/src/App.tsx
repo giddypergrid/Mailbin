@@ -410,22 +410,16 @@ export function App() {
     }
   }
 
-  async function markAsRead(mailId: string) {
+  function fireMarkReadApi(mailId: string) {
     const gmailMessageId = mailId.replace('gmail-', '');
     const markGmail = coreMemory?.markEmailsAsRead ?? true;
-    let succeeded = false;
-    try {
-      const response = await fetch(`${supabaseFunctionsUrl}/mark-read`, {
+    getAuthHeaders().then((headers) =>
+      fetch(`${supabaseFunctionsUrl}/mark-read`, {
         method: 'POST',
-        headers: { ...(await getAuthHeaders()), 'Content-Type': 'application/json' },
+        headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({ gmailMessageId, markGmail }),
-      });
-      succeeded = response.ok;
-    } catch { /* best-effort */ }
-    if (succeeded) {
-      setDismissedMailIds((prev) => [...prev, mailId]);
-    }
-    setDismissingMailId(null);
+      })
+    ).catch(() => { /* best-effort */ });
   }
 
   function handlePointerDown(e: React.PointerEvent, mailId: string) {
@@ -484,18 +478,26 @@ export function App() {
     activeSwipeRef.current = null;
 
     if (dx > SWIPE_THRESHOLD) {
-      setRevealColor(card, 'rgba(139, 115, 85, 1)');
+      setSwipingMailId(null);
+      fireMarkReadApi(activeId);
+      // hide card instantly, then collapse wrapper height over 300ms
       if (card) {
-        card.style.transition = 'transform 260ms ease, opacity 260ms ease';
-        card.style.transform = 'translateX(120%)';
         card.style.opacity = '0';
       }
-      setDismissingMailId(activeId);
-      setSwipingMailId(null);
+      const wrapper = card?.parentElement as HTMLElement | null;
+      if (wrapper) {
+        const height = wrapper.offsetHeight;
+        wrapper.style.maxHeight = height + 'px';
+        wrapper.style.overflow = 'hidden';
+        wrapper.getBoundingClientRect(); // force reflow
+        wrapper.style.transition = 'max-height 300ms ease, margin-bottom 300ms ease';
+        wrapper.style.maxHeight = '0';
+        wrapper.style.marginBottom = '-8px';
+      }
       setTimeout(() => {
-        markAsRead(activeId);
+        setDismissedMailIds((prev) => [...prev, activeId]);
         setRevealColor(card, null);
-      }, 260);
+      }, 300);
     } else if (dx < -SWIPE_THRESHOLD) {
       setRevealColor(card, 'rgba(192, 57, 43, 1)');
       if (card) {
@@ -796,12 +798,12 @@ export function App() {
               <p className="mail-list-status is-error">Could not load emails.</p>
             ) : null}
             {activeMails.map((mail) => {
-              const isDismissing = dismissingMailId === mail.id;
+
               return (
                 <div className="mail-card-wrapper" key={mail.id}>
                   <div className="swipe-reveal" />
                   <button
-                    className={`mail-card${isDismissing ? ' is-dismissing-right' : ''}`}
+                    className="mail-card"
                     onPointerDown={(e) => handlePointerDown(e, mail.id)}
                     onPointerMove={handlePointerMove}
                     onPointerUp={handlePointerUp}

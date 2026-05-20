@@ -358,6 +358,7 @@ h1 {
   display: grid;
   gap: 8px;
   grid-auto-rows: minmax(106px, auto);
+  align-content: start;
   max-width: 720px;
   flex: 1;
   margin: 0 auto;
@@ -393,6 +394,7 @@ h1 {
   touch-action: pan-y;
 }
 
+
 .swipe-reveal {
   position: absolute;
   inset: 0;
@@ -414,7 +416,7 @@ h1 {
   background: #f5f0e8;
   cursor: pointer;
   text-align: left;
-  transition: opacity 240ms ease, transform 260ms ease, border-color 160ms ease;
+  transition: border-color 160ms ease;
 }
 
 .mail-card:hover,
