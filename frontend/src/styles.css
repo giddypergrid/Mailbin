@@ -228,21 +228,22 @@ h1 {
 
 .bin-button img {
   display: block;
-  width: 100%;
+  height: 100%;
+  width: auto;
+  max-width: 100%;
   object-fit: contain;
   pointer-events: none;
 }
 
-.bin-emergency {
-  width: min(42vw, 220px);
-}
-
-.bin-info {
-  width: min(42vw, 220px);
+.bin-emergency,
+.bin-info,
+.bin-maybe {
+  height: min(20vh, 118px);
+  width: auto;
+  max-width: min(72vw, 300px);
 }
 
 .bin-maybe {
-  width: min(52vw, 260px);
   margin-top: 16px;
 }
 
@@ -393,7 +394,7 @@ h1 {
   z-index: 1;
   display: block;
   width: 100%;
-  padding: 20px;
+  padding: 14px 16px;
   border: 1px solid #d8d0c0;
   border-radius: 16px;
   color: inherit;
@@ -1012,18 +1013,6 @@ h1 {
 
   .hero {
     padding-top: 72px;
-  }
-
-  .bin-emergency {
-    width: min(52vw, 180px);
-  }
-
-  .bin-info {
-    width: min(52vw, 180px);
-  }
-
-  .bin-maybe {
-    width: min(64vw, 220px);
   }
 
   .folder-bin-image {
