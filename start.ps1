@@ -23,15 +23,16 @@ Set-Content $configPath $updated -Encoding utf8
 
 Write-Host "Injected server.url http://$lanIp`:5174 into capacitor.config.ts" -ForegroundColor Cyan
 
-# Generate app icons from resources/ into Android mipmap folders
-Write-Host "Generating app icons from resources/..." -ForegroundColor Cyan
-Set-Location -LiteralPath "$PSScriptRoot/frontend"
-npx @capacitor/assets generate --android --assetPath ./resources
+Push-Location -LiteralPath "$PSScriptRoot/frontend"
+try {
+  # Generate app icons from resources/ into Android mipmap folders
+  Write-Host "Generating app icons from resources/..." -ForegroundColor Cyan
+  npx @capacitor/assets generate --android --assetPath ./resources
 
-# Inject beige splash background for Android 12+ (values-v31 overrides system splash color)
-$splashValuesDir = "$PSScriptRoot/frontend/android/app/src/main/res/values-v31"
-New-Item -ItemType Directory -Force $splashValuesDir | Out-Null
-Set-Content "$splashValuesDir/styles.xml" -Encoding utf8 @'
+  # Inject beige splash background for Android 12+ (values-v31 overrides system splash color)
+  $splashValuesDir = "$PSScriptRoot/frontend/android/app/src/main/res/values-v31"
+  New-Item -ItemType Directory -Force $splashValuesDir | Out-Null
+  Set-Content "$splashValuesDir/styles.xml" -Encoding utf8 @'
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
@@ -41,14 +42,17 @@ Set-Content "$splashValuesDir/styles.xml" -Encoding utf8 @'
     </style>
 </resources>
 '@
-Write-Host "Injected beige splash screen (values-v31)" -ForegroundColor Cyan
+  Write-Host "Injected beige splash screen (values-v31)" -ForegroundColor Cyan
 
-# Sync web assets + updated config into the Android project
-Write-Host "Syncing Capacitor Android..." -ForegroundColor Cyan
-npx cap sync android
+  # Sync web assets + updated config into the Android project
+  Write-Host "Syncing Capacitor Android..." -ForegroundColor Cyan
+  npx cap sync android
 
-Write-Host "Starting Mailbin frontend at http://$lanIp`:5174 ..." -ForegroundColor Cyan
-# Open Android Studio with the project
-npx cap open android
+  Write-Host "Starting Mailbin frontend at http://$lanIp`:5174 ..." -ForegroundColor Cyan
+  # Open Android Studio with the project
+  npx cap open android
 
-npx vite --host 0.0.0.0 --port 5174 --strictPort
+  npx vite --host 0.0.0.0 --port 5174 --strictPort
+} finally {
+  Pop-Location  # restore original directory even on Ctrl+C
+}
