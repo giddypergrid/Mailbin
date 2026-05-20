@@ -62,7 +62,7 @@ Deno.serve((req: Request) => {
       headers: {
         ...corsHeaders,
         Location: authUrl.toString(),
-        'Set-Cookie': `OauthState=${encodeURIComponent(OauthState)}; HttpOnly${secureCookie}; SameSite=Lax; Path=/; Max-Age=600`,
+        'Set-Cookie': `OauthState=${encodeURIComponent(csrfToken)}; HttpOnly${secureCookie}; SameSite=Lax; Path=/; Max-Age=600`,
       },
     });
   } catch (error) {

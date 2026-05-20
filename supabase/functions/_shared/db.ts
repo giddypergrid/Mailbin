@@ -1,5 +1,6 @@
 import { type GmailConnection, type CoreMemoryRow, type GmailEmailRow } from './types.ts';
 import { logWeird } from './logger.ts';
+import { CONFIG } from './config.ts';
 
 export const supabaseHeaders = (serviceRoleKey: string) => ({
   apikey: serviceRoleKey,
@@ -41,7 +42,8 @@ export async function ensureCoreMemory(supabaseUrl: string, serviceRoleKey: stri
       headers: { ...supabaseHeaders(serviceRoleKey), Prefer: 'resolution=ignore-duplicates' },
       body: JSON.stringify({
         user_id: userId,
-        custom_rules: [],
+        custom_rules: CONFIG.coreMemory.defaultRules,
+        mark_emails_as_read: true,
       }),
     },
   );
@@ -115,6 +117,59 @@ export async function updateLastSyncedAt(supabaseUrl: string, serviceRoleKey: st
   return response.ok;
 }
 
+export async function markEmailRead(supabaseUrl: string, serviceRoleKey: string, userId: string, gmailMessageId: string): Promise<boolean> {
+  const response = await fetch(
+    `${supabaseUrl}/rest/v1/gmail_emails?user_id=eq.${userId}&gmail_message_id=eq.${gmailMessageId}`,
+    {
+      method: 'PATCH',
+      headers: supabaseHeaders(serviceRoleKey),
+      body: JSON.stringify({ is_read: true }),
+    },
+  );
+  return response.ok;
+}
+
+export async function saveFeedback(supabaseUrl: string, serviceRoleKey: string, userId: string, gmailMessageId: string, feedbackText: string): Promise<boolean> {
+  const wordCount = feedbackText.trim().split(/\s+/).filter(Boolean).length;
+  if (wordCount > 30) return false;
+
+  const response = await fetch(
+    `${supabaseUrl}/rest/v1/user_feedback`,
+    {
+      method: 'POST',
+      headers: supabaseHeaders(serviceRoleKey),
+      body: JSON.stringify({
+        user_id: userId,
+        gmail_message_id: gmailMessageId,
+        feedback_text: feedbackText,
+      }),
+    },
+  );
+  return response.ok;
+}
+
+export async function fetchUnprocessedFeedback(supabaseUrl: string, serviceRoleKey: string, userId: string): Promise<Array<{ id: string; gmail_message_id: string; feedback_text: string; created_at: string }>> {
+  const response = await fetch(
+    `${supabaseUrl}/rest/v1/user_feedback?select=id,gmail_message_id,feedback_text,created_at&user_id=eq.${userId}&processed=eq.false&order=created_at.asc`,
+    { headers: supabaseHeaders(serviceRoleKey) },
+  );
+  if (!response.ok) return [];
+  return await response.json() as Array<{ id: string; gmail_message_id: string; feedback_text: string; created_at: string }>;
+}
+
+export async function markFeedbackProcessed(supabaseUrl: string, serviceRoleKey: string, userId: string, feedbackIds: string[]): Promise<boolean> {
+  const idsParam = feedbackIds.map(id => `"${id}"`).join(',');
+  const response = await fetch(
+    `${supabaseUrl}/rest/v1/user_feedback?user_id=eq.${userId}&id=in.(${idsParam})`,
+    {
+      method: 'PATCH',
+      headers: supabaseHeaders(serviceRoleKey),
+      body: JSON.stringify({ processed: true }),
+    },
+  );
+  return response.ok;
+}
+
 export async function fetchEmails(
   supabaseUrl: string,
   serviceRoleKey: string,
@@ -123,8 +178,7 @@ export async function fetchEmails(
   before?: string,
   limit: number = 20,
 ): Promise<{ rows: GmailEmailRow[]; nextCursor: string | null }> {
-  let url = `${supabaseUrl}/rest/v1/gmail_emails?select=*&user_id=eq.${userId}&order=received_at.desc.nullslast&limit=${limit}`;
-
+  let url = `${supabaseUrl}/rest/v1/gmail_emails?select=*&user_id=eq.${userId}&is_read=eq.false&order=received_at.desc.nullslast&limit=${limit}`;
   if (bin) url += `&bin=eq.${bin}`;
   if (before) url += `&received_at=lt.${before}`;
 

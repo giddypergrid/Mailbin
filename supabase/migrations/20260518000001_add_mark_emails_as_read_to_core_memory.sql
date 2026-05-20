@@ -1,0 +1,1 @@
+ALTER TABLE core_memory ADD COLUMN mark_emails_as_read BOOLEAN DEFAULT TRUE;

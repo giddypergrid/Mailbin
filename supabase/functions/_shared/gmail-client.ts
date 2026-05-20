@@ -84,6 +84,21 @@ export async function refreshAccessToken(clientId: string, clientSecret: string,
   };
 }
 
+export async function markMessageRead(accessToken: string, messageId: string): Promise<boolean> {
+  const response = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/modify`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ removeLabelIds: ['UNREAD'] }),
+    },
+  );
+  return response.ok;
+}
+
 export async function getValidAccessToken(connection: GmailConnection, supabaseUrl: string, serviceRoleKey: string): Promise<string> {
   if (!connection.expires_at) {
     return connection.access_token;

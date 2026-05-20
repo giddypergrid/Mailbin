@@ -10,7 +10,8 @@ const envString = (key: string, fallback: string): string =>
 export const CONFIG = {
   fetch: {
     limit: envNumber('MAILBIN_FETCH_LIMIT', 10),
-    batchSize: envNumber('MAILBIN_FETCH_BATCH_SIZE', 3),
+    batchSize: envNumber('MAILBIN_FETCH_BATCH_SIZE', 5),
+    classifyBatchSize: envNumber('MAILBIN_CLASSIFY_BATCH_SIZE', 15),
     batchDelayMs: envNumber('MAILBIN_FETCH_BATCH_DELAY_MS', 300),
     tokenRefreshWindowMs: envNumber('MAILBIN_FETCH_TOKEN_REFRESH_WINDOW_MS', 60000),
   },
@@ -19,14 +20,14 @@ export const CONFIG = {
     model: envString('MAILBIN_GEMINI_MODEL', 'gemini-2.5-flash-lite'),
   },
   coreMemory: {
-    maxRules: 5,
-    maxRuleLength: 20,
+    maxRules: 10,
+    maxRuleLength: 200,
     defaultRules: [
-      'Promotional emails from shopping sites, newsletters, marketing → maybe.',
-      'Legal documents, bank statements, tax info, government notices → emergency.',
-      'Work emails from colleagues and managers → emergency.',
-      'Social media notifications → info.',
-      'Meeting invites, calendar reminders → info.',
+      'Flag job-related emails (offers, interviews, rejections) as emergency.',
+      'Demote LinkedIn, Quora, and Medium social notifications to maybe.',
+      'Routine bank statements without action items belong in maybe, not emergency.',
+      'Family or partner messages about health, money, or safety are emergency.',
+      'Subscription / paid service emails about expiring trials or failed payments are emergency.',
     ],
     maxLength: envNumber('MAILBIN_CORE_MEMORY_MAX_LENGTH', 5000),
     attachmentKbMin: envNumber('MAILBIN_ATTACHMENT_KB_MIN', 1),

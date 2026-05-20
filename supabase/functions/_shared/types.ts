@@ -23,6 +23,7 @@ export type GmailMessageResponse = {
   threadId: string;
   snippet?: string;
   internalDate?: string;
+  labelIds?: string[];
   payload?: {
     headers?: Array<{ name: string; value: string }>;
     parts?: GmailPart[];
@@ -53,6 +54,7 @@ export type CoreMemoryRow = {
   custom_rules: string[];
   attachment_max_size_kb: number;
   send_attachments_to_ai: boolean;
+  mark_emails_as_read: boolean;
 };
 
 export type ClassifiedEmail = {
@@ -79,6 +81,7 @@ export type GmailEmailRow = {
   has_attachments: boolean;
   attachment_total_kb: number;
   is_customized: boolean;
+  is_read: boolean;
   synced_at: string;
 };
 

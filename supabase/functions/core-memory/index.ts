@@ -57,10 +57,14 @@ Deno.serve(async (req: Request) => {
 
       log('CORE-MEMORY', 'Loaded', { userId });
 
+      const rules = Array.isArray(row.custom_rules) && row.custom_rules.length > 0
+        ? row.custom_rules
+        : CONFIG.coreMemory.defaultRules;
       return jsonResponse({
-        customRules: row.custom_rules ?? CONFIG.coreMemory.defaultRules,
+        customRules: rules,
         attachmentMaxSizeKb: row.attachment_max_size_kb ?? 100,
         sendAttachmentsToAi: row.send_attachments_to_ai ?? false,
+        markEmailsAsRead: row.mark_emails_as_read ?? true,
       });
     }
 
@@ -87,6 +91,7 @@ Deno.serve(async (req: Request) => {
       }
 
       if (typeof body.sendAttachmentsToAi === 'boolean') updatePayload.send_attachments_to_ai = body.sendAttachmentsToAi;
+      if (typeof body.markEmailsAsRead === 'boolean') updatePayload.mark_emails_as_read = body.markEmailsAsRead;
 
       updatePayload.updated_at = new Date().toISOString();
 

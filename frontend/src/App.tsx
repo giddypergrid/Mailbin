@@ -16,9 +16,9 @@ const binSpeech: Record<BinId, string> = {
 };
 
 const binEmptyMessages: Record<BinId, string> = {
-  emergency: 'No unread files. Bin is sleeping — do not wake him up.',
-  info: 'No unread files. Bin is sleeping — do not wake him up.',
-  maybe: 'No unread files. Bin is sleeping — do not wake him up.',
+  emergency: 'Nothing urgent. You survived another day.',
+  info: 'Zero info. Your brain is safe.',
+  maybe: 'Nothing to maybe about. Pure peace.',
 };
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -46,6 +46,27 @@ function navigateHome() {
   window.location.hash = '/';
 }
 
+function relativeTime(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const ts = new Date(iso).getTime();
+  if (isNaN(ts) || ts <= 0) return '';
+  const diff = Date.now() - ts;
+  if (diff < 0) return 'just now';
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks}w ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo ago`;
+  return `${Math.floor(months / 12)}y ago`;
+}
+
 export function App() {
   const [selectedBin, setSelectedBin] = useState<BinId | null>(getRouteBin());
   const [pressedBin, setPressedBin] = useState<BinId | null>(null);
@@ -63,6 +84,13 @@ export function App() {
   const [showPreferences, setShowPreferences] = useState(false);
   const [savingPreferences, setSavingPreferences] = useState(false);
   const [preferencesError, setPreferencesError] = useState<string | null>(null);
+
+  const [swipingMailId, setSwipingMailId] = useState<string | null>(null);
+  const [feedbackMailId, setFeedbackMailId] = useState<string | null>(null);
+  const [feedbackText, setFeedbackText] = useState('');
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+
+  const [onboardingStep, setOnboardingStep] = useState(0);
 
   const [binEmailsMap, setBinEmailsMap] = useState<Record<BinId, MailItem[]>>({
     emergency: [], info: [], maybe: [],
@@ -128,6 +156,9 @@ export function App() {
             setIsGmailConnected(true);
             loadCoreMemory();
             triggerSync();
+            if (!localStorage.getItem('mailbin_onboarded')) {
+              setOnboardingStep(1);
+            }
           }
         });
       }
@@ -135,6 +166,7 @@ export function App() {
     }
 
     if (gmail === 'error') {
+      setIsConnectingGmail(false);
       setGmailStatus(`Gmail connect failed: ${reason ?? 'unknown_error'}`);
     }
   }
@@ -295,6 +327,10 @@ export function App() {
 
   const mailListRef = useRef<HTMLElement>(null);
   const syncActiveRef = useRef(false);
+  const dragStartXRef = useRef(0);
+  const activeSwipeRef = useRef<string | null>(null);
+  const cardElsRef = useRef<Map<string, HTMLElement>>(new Map());
+  const feedbackMailRef = useRef<MailItem | null>(null);
 
   useEffect(() => {
     const el = mailListRef.current;
@@ -338,51 +374,194 @@ export function App() {
       return;
     }
     setIsConnectingGmail(true);
-    const oauthUrl = `${supabaseFunctionsUrl}/gmail-oauth-start?redirect_uri=mailbin://callback`;
     if (isNative) {
-      Browser.open({ url: oauthUrl }).catch(() => {
-        window.location.href = oauthUrl;
+      const nativeOauthUrl = `${supabaseFunctionsUrl}/gmail-oauth-start?redirect_uri=${encodeURIComponent('mailbin://callback')}`;
+      Browser.open({ url: nativeOauthUrl }).catch(() => {
+        window.location.href = nativeOauthUrl;
       });
     } else {
-      window.location.href = oauthUrl;
+      window.location.href = `${supabaseFunctionsUrl}/gmail-oauth-start`;
     }
   }
 
-  function handleMailClick(id: string) {
-    if (dismissingMailId) return;
-    setDismissingMailId(id);
-    window.setTimeout(() => {
-      setDismissedMailIds((current) => [...current, id]);
-      setDismissingMailId(null);
-    }, 260);
+  const SWIPE_THRESHOLD = 160;
+
+  function setRevealColor(card: HTMLElement | null | undefined, color: string | null) {
+    const wrapper = card?.parentElement;
+    const reveal = wrapper?.querySelector('.swipe-reveal') as HTMLElement | null;
+    if (reveal) {
+      reveal.style.background = color ?? '';
+    }
   }
+
+  async function markAsRead(mailId: string) {
+    const gmailMessageId = mailId.replace('gmail-', '');
+    const markGmail = coreMemory?.markEmailsAsRead ?? true;
+    let succeeded = false;
+    try {
+      const response = await fetch(`${supabaseFunctionsUrl}/mark-read`, {
+        method: 'POST',
+        headers: { ...(await getAuthHeaders()), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gmailMessageId, markGmail }),
+      });
+      succeeded = response.ok;
+    } catch { /* best-effort */ }
+    if (succeeded) {
+      setDismissedMailIds((prev) => [...prev, mailId]);
+    }
+    setDismissingMailId(null);
+  }
+
+  function handlePointerDown(e: React.PointerEvent, mailId: string) {
+    if (activeSwipeRef.current || feedbackMailId) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('.open-gmail')) return;
+    const card = e.currentTarget as HTMLElement;
+    card.setPointerCapture(e.pointerId);
+    card.style.transition = 'none';
+    activeSwipeRef.current = mailId;
+    cardElsRef.current.set(mailId, card);
+    dragStartXRef.current = e.clientX;
+    setSwipingMailId(mailId);
+  }
+
+  function handlePointerMove(e: React.PointerEvent) {
+    const activeId = activeSwipeRef.current;
+    if (!activeId) return;
+    const card = cardElsRef.current.get(activeId);
+    if (!card) return;
+    const dx = e.clientX - dragStartXRef.current;
+    card.style.transform = `translateX(${dx}px)`;
+
+    const progress = Math.min(Math.abs(dx) / SWIPE_THRESHOLD, 1);
+    if (dx > 0) {
+      setRevealColor(card, `rgba(139, 115, 85, ${progress})`);
+    } else if (dx < 0) {
+      setRevealColor(card, `rgba(192, 57, 43, ${progress})`);
+    } else {
+      setRevealColor(card, null);
+    }
+  }
+
+  function handlePointerUp(e: React.PointerEvent) {
+    const activeId = activeSwipeRef.current;
+    if (!activeId) return;
+    const dx = e.clientX - dragStartXRef.current;
+    const card = cardElsRef.current.get(activeId);
+    cardElsRef.current.delete(activeId);
+    activeSwipeRef.current = null;
+
+    if (dx > SWIPE_THRESHOLD) {
+      setRevealColor(card, 'rgba(139, 115, 85, 1)');
+      if (card) {
+        card.style.transition = 'transform 260ms ease, opacity 260ms ease';
+        card.style.transform = 'translateX(120%)';
+        card.style.opacity = '0';
+      }
+      setDismissingMailId(activeId);
+      setSwipingMailId(null);
+      setTimeout(() => {
+        markAsRead(activeId);
+        setRevealColor(card, null);
+      }, 260);
+    } else if (dx < -SWIPE_THRESHOLD) {
+      setRevealColor(card, 'rgba(192, 57, 43, 1)');
+      if (card) {
+        card.style.transition = '';
+        card.style.transform = '';
+      }
+      const mail = activeMails.find((m) => m.id === activeId);
+      if (mail) feedbackMailRef.current = mail;
+      setFeedbackMailId(activeId);
+      setDismissedMailIds((prev) => (prev.includes(activeId) ? prev : [...prev, activeId]));
+      setSwipingMailId(null);
+    } else {
+      if (card) {
+        card.style.transition = 'transform 260ms ease';
+        card.style.transform = '';
+      }
+      setRevealColor(card, null);
+      setSwipingMailId(null);
+    }
+  }
+
+  async function submitFeedback() {
+    if (!feedbackMailId || isSubmittingFeedback) return;
+    const wordCount = feedbackText.trim().split(/\s+/).filter(Boolean).length;
+    if (wordCount > 30) return;
+    setIsSubmittingFeedback(true);
+    const gmailMessageId = feedbackMailId.replace('gmail-', '');
+    try {
+      await fetch(`${supabaseFunctionsUrl}/save-feedback`, {
+        method: 'POST',
+        headers: { ...(await getAuthHeaders()), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gmailMessageId, feedbackText: feedbackText.trim() }),
+      });
+    } catch { /* best-effort */ }
+    setFeedbackMailId(null);
+    setFeedbackText('');
+    setIsSubmittingFeedback(false);
+    setDismissedMailIds((prev) => (prev.includes(feedbackMailId) ? prev : [...prev, feedbackMailId]));
+  }
+
+  const feedbackMail = feedbackMailRef.current;
+
+  const feedbackPanel = feedbackMailId ? (
+    <div className="feedback-overlay" onClick={() => { setFeedbackMailId(null); setFeedbackText(''); }}>
+      <div className="feedback-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="feedback-badge-strip" style={{ background: getBin(feedbackMail?.bin ?? null)?.accent ?? '#888' }} />
+        <div className="feedback-body">
+          <div className="feedback-header">
+            <h2 className="feedback-title">Teach the AI</h2>
+            <button className="feedback-close" onClick={() => { setFeedbackMailId(null); setFeedbackText(''); }} type="button">
+              <X size={18} />
+            </button>
+          </div>
+          <p className="feedback-summary-label">Email summary</p>
+          <div className="feedback-summary-area">
+            {feedbackMail?.aiSummary || feedbackMail?.summary || '(no summary)'}
+          </div>
+          <p className="feedback-input-label">
+            Why did you bin this? <span className="feedback-word-count">({Math.max(0, 30 - feedbackText.trim().split(/\s+/).filter(Boolean).length)} words left)</span>
+          </p>
+          <textarea
+            className="feedback-input"
+            placeholder="Tell the AI what to learn from this..."
+            value={feedbackText}
+            onChange={(e) => setFeedbackText(e.target.value)}
+            maxLength={200}
+          />
+          <button
+            className="feedback-submit"
+            type="button"
+            disabled={!feedbackText.trim() || isSubmittingFeedback}
+            onClick={submitFeedback}
+          >
+            {isSubmittingFeedback ? 'Saving...' : 'Submit feedback'}
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
 
   const preferencesPanel = showPreferences ? (
     <div className="preferences-overlay" onClick={() => setShowPreferences(false)}>
-      <div className="preferences-panel" onClick={(e) => e.stopPropagation()}>
-        <div className="preferences-header">
-          <h2>Preferences</h2>
-          <button className="preferences-close" onClick={() => setShowPreferences(false)} type="button">
-            <X size={18} />
-          </button>
-        </div>
-        <form
-          className="preferences-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!coreMemory) return;
-            saveCoreMemory(coreMemory);
-          }}
-        >
-          <p className="preferences-section-title">Custom classification rules (up to 5, each ≤20 words)</p>
-          {Array.from({ length: 5 }).map((_, index) => (
+      <div className="preferences-board" onClick={(e) => e.stopPropagation()}>
+        <button className="board-close" onClick={() => setShowPreferences(false)} type="button">
+          <X size={22} />
+        </button>
+
+        <div className="board-tag">Instructions</div>
+        <div className="board-rules">
+          <p className="board-rules-hint">Custom classification rules (up to 10, each ≤200 characters)</p>
+          {Array.from({ length: 10 }).map((_, index) => (
             <input
               key={index}
               type="text"
-              className="preferences-rule-input"
+              className="board-rule-input"
               placeholder={`Rule ${index + 1} — e.g. "Temu promos → emergency"`}
               value={coreMemory?.customRules[index] ?? ''}
-              maxLength={20}
+              maxLength={200}
               onChange={(e) => setCoreMemory((prev) => {
                 if (!prev) return null;
                 const rules = [...prev.customRules];
@@ -391,12 +570,124 @@ export function App() {
               })}
             />
           ))}
+        </div>
 
-          {preferencesError ? <p className="preferences-error">{preferencesError}</p> : null}
-          <button className="preferences-save" type="submit" disabled={savingPreferences}>
-            {savingPreferences ? 'Saving...' : 'Save'}
-          </button>
-        </form>
+        <div className="board-center" />
+
+        <div className="board-tag">Preferences</div>
+        <div className="board-preference-row">
+          <label className="board-checkbox-label">
+            <input
+              type="checkbox"
+              checked={coreMemory?.markEmailsAsRead ?? true}
+              onChange={(e) => setCoreMemory((prev) => {
+                if (!prev) return null;
+                return { ...prev, markEmailsAsRead: e.target.checked };
+              })}
+            />
+            <span>Slide email will mark Gmail relevant mails as read?</span>
+          </label>
+        </div>
+
+        {preferencesError ? <p className="preferences-error">{preferencesError}</p> : null}
+        <button
+          className="board-save"
+          type="button"
+          disabled={savingPreferences}
+          onClick={() => {
+            if (!coreMemory) return;
+            saveCoreMemory(coreMemory);
+          }}
+        >
+          {savingPreferences ? 'Saving...' : 'Save'}
+        </button>
+      </div>
+    </div>
+  ) : null;
+
+  const onboardingBoard = onboardingStep > 0 ? (
+    <div className="preferences-overlay">
+      <div className="preferences-board onboarding-board">
+        <button className="board-close" onClick={() => { setOnboardingStep(0); localStorage.setItem('mailbin_onboarded', 'true'); }} type="button">
+          <X size={22} />
+        </button>
+
+        {onboardingStep === 1 ? (
+          <>
+            <h2 className="onboarding-title">Welcome to Mailbin</h2>
+            <p className="onboarding-subtitle">You have three bins:</p>
+            <div className="onboarding-bins">
+              {bins.map((bin) => (
+                <div className="onboarding-bin-row" key={bin.id}>
+                  <img className="onboarding-bin-img" src={bin.image} alt={`${bin.title} bin`} />
+                  <div className="onboarding-bin-text">
+                    <span className="onboarding-bin-name" style={{ color: bin.accent }}>{bin.title}</span>
+                    <span className="onboarding-bin-desc">{binSpeech[bin.id]}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : null}
+
+        {onboardingStep === 2 ? (
+          <>
+            <h2 className="onboarding-title">How to use</h2>
+            <div className="onboarding-swipe-demo">
+              <div className="onboarding-swipe-item">
+                <div className="onboarding-fake-card">
+                  <span className="onboarding-fake-theme">Email</span>
+                </div>
+                <div className="onboarding-swipe-hint">
+                  <span className="onboarding-arrow right">→</span>
+                  <span>Swipe right to read an email</span>
+                </div>
+              </div>
+              <div className="onboarding-swipe-item">
+                <div className="onboarding-fake-card">
+                  <span className="onboarding-fake-theme">Email</span>
+                </div>
+                <div className="onboarding-swipe-hint">
+                  <span className="onboarding-arrow left">←</span>
+                  <span>Swipe left if you think email is wrongly binned or summarized!</span>
+                </div>
+              </div>
+            </div>
+          </>
+        ) : null}
+
+        {onboardingStep === 3 ? (
+          <>
+            <h2 className="onboarding-title">Check your status!</h2>
+            <div className="onboarding-status-demo">
+              <div className="onboarding-status-pill-demo is-ready">Server <Check size={12} /></div>
+              <div className="onboarding-status-pill-demo is-connected">Gmail <Check size={12} /></div>
+            </div>
+            <p className="onboarding-status-text">
+              This is where you put your instructions! Try it out!
+            </p>
+            <p className="onboarding-dev-note">
+              The app is still under development, write to sunziyuan000@gmail.com!
+            </p>
+          </>
+        ) : null}
+
+        <div className="onboarding-nav">
+          {onboardingStep > 1 ? (
+            <button className="onboarding-nav-btn" type="button" onClick={() => setOnboardingStep((s) => s - 1)}>
+              Previous
+            </button>
+          ) : <span />}
+          {onboardingStep < 3 ? (
+            <button className="onboarding-nav-btn primary" type="button" onClick={() => setOnboardingStep((s) => s + 1)}>
+              Next
+            </button>
+          ) : (
+            <button className="onboarding-nav-btn primary" type="button" onClick={() => { setOnboardingStep(0); localStorage.setItem('mailbin_onboarded', 'true'); }}>
+              Start!
+            </button>
+          )}
+        </div>
       </div>
     </div>
   ) : null;
@@ -405,6 +696,8 @@ export function App() {
     return (
       <>
         {preferencesPanel}
+        {feedbackPanel}
+        {onboardingBoard}
         <main className="app-shell folder-shell">
           <button className="back-button" onClick={navigateHome} type="button">
             ← Back to bins
@@ -461,52 +754,58 @@ export function App() {
             {currentBinStatus === 'error' ? (
               <p className="mail-list-status is-error">Could not load emails.</p>
             ) : null}
-            {activeMails.map((mail) => (
-              <button
-                className={`mail-card${dismissingMailId === mail.id ? ' is-dismissing' : ''}`}
-                key={mail.id}
-                onClick={() => handleMailClick(mail.id)}
-                type="button"
-              >
-              <div>
-                <div className="mail-card-header">
-                  <span className="mail-theme">{mail.aiTheme || mail.subject}</span>
-                  {mail.aiFromWho ? <span className="mail-from-who">{mail.aiFromWho}</span> : null}
-                  {mail.isCustomized ? <span className="customized-badge">customized</span> : null}
-                </div>
-                <div className="mail-summary-row">
-                  <p className="mail-summary">{mail.aiSummary || mail.summary}</p>
-                  <span
-                    className="open-gmail"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (isNative) {
-                        Browser.open({ url: mail.gmailUrl }).catch(() => window.open(mail.gmailUrl, '_blank'));
-                      } else {
-                        window.open(mail.gmailUrl, '_blank');
-                      }
-                    }}
+            {activeMails.map((mail) => {
+              const isDismissing = dismissingMailId === mail.id;
+              return (
+                <div className="mail-card-wrapper" key={mail.id}>
+                  <div className="swipe-reveal" />
+                  <button
+                    className={`mail-card${isDismissing ? ' is-dismissing-right' : ''}`}
+                    onPointerDown={(e) => handlePointerDown(e, mail.id)}
+                    onPointerMove={handlePointerMove}
+                    onPointerUp={handlePointerUp}
+                    type="button"
                   >
-                    Open
-                  </span>
-                </div>
-                {mail.attachments && mail.attachments.length > 0 ? (
-                    <div className="mail-attachments">
-                      {mail.attachments.map((att) => (
-                        <span key={att.filename} className={`mail-attachment-tag is-${att.category ?? 'native'}`}>
-                          {att.filename} ({(att.sizeBytes / 1024).toFixed(0)} KB{att.category !== 'native' ? ` · ${att.category}` : ''})
-                        </span>
-                      ))}
-                      {mail.skippedAttachments ? (
-                        <span className="mail-attachment-tag is-skipped">
-                          +{mail.skippedAttachments} unsupported
-                        </span>
-                      ) : null}
+                    <div className="mail-card-header">
+                      <span className="mail-theme">{mail.aiTheme || mail.subject}</span>
+                      {mail.receivedAt ? <span className="mail-time">{relativeTime(mail.receivedAt)}</span> : null}
+                      {mail.aiFromWho ? <span className="mail-from-who">{mail.aiFromWho}</span> : null}
+                      {mail.isCustomized ? <span className="customized-badge">customized</span> : null}
                     </div>
-                  ) : null}
+                    <div className="mail-summary-row">
+                      <p className="mail-summary">{mail.aiSummary || mail.summary}</p>
+                      <span
+                        className="open-gmail"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (isNative) {
+                            Browser.open({ url: mail.gmailUrl }).catch(() => window.open(mail.gmailUrl, '_blank'));
+                          } else {
+                            window.open(mail.gmailUrl, '_blank');
+                          }
+                        }}
+                      >
+                        Open
+                      </span>
+                    </div>
+                    {mail.attachments && mail.attachments.length > 0 ? (
+                      <div className="mail-attachments">
+                        {mail.attachments.map((att) => (
+                          <span key={att.filename} className={`mail-attachment-tag is-${att.category ?? 'native'}`}>
+                            {att.filename} ({(att.sizeBytes / 1024).toFixed(0)} KB{att.category !== 'native' ? ` · ${att.category}` : ''})
+                          </span>
+                        ))}
+                        {mail.skippedAttachments ? (
+                          <span className="mail-attachment-tag is-skipped">
+                            +{mail.skippedAttachments} unsupported
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </button>
                 </div>
-              </button>
-            ))}
+              );
+            })}
             {currentBinStatus === 'ready' && binCursors[selectedBin!] ? (
               <p className="mail-list-status">Scroll for more...</p>
             ) : null}
@@ -519,6 +818,8 @@ export function App() {
   return (
     <>
       {preferencesPanel}
+      {feedbackPanel}
+      {onboardingBoard}
       <main className="app-shell home-shell">
         <button className="settings-button" type="button" aria-label="Settings" onClick={() => setShowPreferences(true)}>
           <Settings size={28} />
