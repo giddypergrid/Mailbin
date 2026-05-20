@@ -29,20 +29,33 @@ try {
   Write-Host "Generating app icons from resources/..." -ForegroundColor Cyan
   npx @capacitor/assets generate --android --assetPath ./resources
 
-  # Inject beige splash background for Android 12+ (values-v31 overrides system splash color)
-  $splashValuesDir = "$PSScriptRoot/frontend/android/app/src/main/res/values-v31"
-  New-Item -ItemType Directory -Force $splashValuesDir | Out-Null
-  Set-Content "$splashValuesDir/styles.xml" -Encoding utf8 @'
+  # Inject beige splash for Android 12+ — transparent icon makes it plain beige with nothing visible
+  $resDir = "$PSScriptRoot/frontend/android/app/src/main/res"
+  New-Item -ItemType Directory -Force "$resDir/values-v31" | Out-Null
+  New-Item -ItemType Directory -Force "$resDir/drawable" | Out-Null
+
+  # Transparent 1x1 vector — hides the system splash icon entirely
+  Set-Content "$resDir/drawable/splash_icon_hidden.xml" -Encoding utf8 @'
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="1dp"
+    android:height="1dp"
+    android:viewportWidth="1"
+    android:viewportHeight="1">
+</vector>
+'@
+
+  Set-Content "$resDir/values-v31/styles.xml" -Encoding utf8 @'
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:windowSplashScreenBackground">#f5f0e8</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_icon_hidden</item>
         <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
     </style>
 </resources>
 '@
-  Write-Host "Injected beige splash screen (values-v31)" -ForegroundColor Cyan
+  Write-Host "Injected beige splash screen with hidden icon (values-v31)" -ForegroundColor Cyan
 
   # Sync web assets + updated config into the Android project
   Write-Host "Syncing Capacitor Android..." -ForegroundColor Cyan

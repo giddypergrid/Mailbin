@@ -96,8 +96,8 @@ export function App() {
   const [splashFading, setSplashFading] = useState(false);
 
   useEffect(() => {
-    const fadeTimer = setTimeout(() => setSplashFading(true), 1200);
-    const hideTimer = setTimeout(() => setShowSplash(false), 1500);
+    const fadeTimer = setTimeout(() => setSplashFading(true), 2200);
+    const hideTimer = setTimeout(() => setShowSplash(false), 2500);
     return () => { clearTimeout(fadeTimer); clearTimeout(hideTimer); };
   }, []);
 
