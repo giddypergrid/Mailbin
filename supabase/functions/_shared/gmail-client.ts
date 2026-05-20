@@ -7,7 +7,7 @@ import { CONFIG } from './config.ts';
 export async function fetchMessageList(accessToken: string, limit: number, pageToken?: string, query?: string): Promise<GmailListResponse> {
   const listUrl = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages');
   listUrl.searchParams.set('maxResults', String(limit));
-  listUrl.searchParams.set('q', query ?? 'in:inbox is:unread');
+  listUrl.searchParams.set('q', query ?? 'in:inbox is:unread category:primary');
   if (pageToken) listUrl.searchParams.set('pageToken', pageToken);
 
   const maxRetries = CONFIG.sync.maxRetries;
