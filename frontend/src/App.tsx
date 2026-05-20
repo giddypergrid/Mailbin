@@ -92,6 +92,14 @@ export function App() {
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
 
   const [onboardingStep, setOnboardingStep] = useState(0);
+  const [showSplash, setShowSplash] = useState(true);
+  const [splashFading, setSplashFading] = useState(false);
+
+  useEffect(() => {
+    const fadeTimer = setTimeout(() => setSplashFading(true), 1200);
+    const hideTimer = setTimeout(() => setShowSplash(false), 1500);
+    return () => { clearTimeout(fadeTimer); clearTimeout(hideTimer); };
+  }, []);
 
   const [binEmailsMap, setBinEmailsMap] = useState<Record<BinId, MailItem[]>>({
     emergency: [], info: [], maybe: [],
@@ -529,6 +537,14 @@ export function App() {
   }
 
   const feedbackMail = feedbackMailRef.current;
+  const emergencyBin = getBin('emergency');
+
+  const splashOverlay = showSplash ? (
+    <div className={`splash-overlay${splashFading ? ' is-fading' : ''}`}>
+      {emergencyBin ? <img className="splash-bin-image" src={emergencyBin.image} alt="Mailbin" /> : null}
+      <span className="splash-title">Mailbin</span>
+    </div>
+  ) : null;
 
   const feedbackPanel = feedbackMailId ? (
     <div className="feedback-overlay" onClick={() => { setFeedbackMailId(null); setFeedbackText(''); }}>
@@ -719,6 +735,7 @@ export function App() {
   if (activeBin) {
     return (
       <>
+        {splashOverlay}
         {preferencesPanel}
         {feedbackPanel}
         {onboardingBoard}
@@ -849,6 +866,7 @@ export function App() {
 
   return (
     <>
+      {splashOverlay}
       {preferencesPanel}
       {feedbackPanel}
       {onboardingBoard}
