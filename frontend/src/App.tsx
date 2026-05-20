@@ -80,6 +80,7 @@ export function App() {
   const [syncProgress, setSyncProgress] = useState(0);
   const [newEmailCount, setNewEmailCount] = useState(0);
   const [floatingMessage, setFloatingMessage] = useState<string | null>(null);
+  const [isConnectHighlighted, setIsConnectHighlighted] = useState(false);
   const [coreMemory, setCoreMemory] = useState<CoreMemory | null>(null);
   const [showPreferences, setShowPreferences] = useState(false);
   const [savingPreferences, setSavingPreferences] = useState(false);
@@ -328,6 +329,8 @@ export function App() {
   const mailListRef = useRef<HTMLElement>(null);
   const syncActiveRef = useRef(false);
   const dragStartXRef = useRef(0);
+  const dragStartYRef = useRef(0);
+  const swipeLockedRef = useRef(false);
   const activeSwipeRef = useRef<string | null>(null);
   const cardElsRef = useRef<Map<string, HTMLElement>>(new Map());
   const feedbackMailRef = useRef<MailItem | null>(null);
@@ -359,6 +362,11 @@ export function App() {
   const gmailStatusState = getGmailStatusState();
 
   function handleBinClick(id: BinId) {
+    if (!isGmailConnected) {
+      setIsConnectHighlighted(true);
+      setTimeout(() => setIsConnectHighlighted(false), 600);
+      return;
+    }
     setPressedBin(id);
     window.setTimeout(() => navigateToBin(id), 220);
   }
@@ -414,15 +422,13 @@ export function App() {
 
   function handlePointerDown(e: React.PointerEvent, mailId: string) {
     if (activeSwipeRef.current || feedbackMailId) return;
-    const target = e.target as HTMLElement;
-    if (target.closest('.open-gmail')) return;
     const card = e.currentTarget as HTMLElement;
-    card.setPointerCapture(e.pointerId);
     card.style.transition = 'none';
     activeSwipeRef.current = mailId;
+    swipeLockedRef.current = false;
     cardElsRef.current.set(mailId, card);
     dragStartXRef.current = e.clientX;
-    setSwipingMailId(mailId);
+    dragStartYRef.current = e.clientY;
   }
 
   function handlePointerMove(e: React.PointerEvent) {
@@ -431,8 +437,26 @@ export function App() {
     const card = cardElsRef.current.get(activeId);
     if (!card) return;
     const dx = e.clientX - dragStartXRef.current;
-    card.style.transform = `translateX(${dx}px)`;
+    const dy = e.clientY - dragStartYRef.current;
 
+    if (!swipeLockedRef.current) {
+      // vertical intent wins — cancel swipe, let browser scroll
+      if (Math.abs(dy) > Math.abs(dx) + 4) {
+        activeSwipeRef.current = null;
+        card.style.transition = '';
+        return;
+      }
+      // horizontal intent — lock in swipe and capture pointer
+      if (Math.abs(dx) > 8) {
+        swipeLockedRef.current = true;
+        card.setPointerCapture(e.pointerId);
+        setSwipingMailId(activeId);
+      } else {
+        return;
+      }
+    }
+
+    card.style.transform = `translateX(${dx}px)`;
     const progress = Math.min(Math.abs(dx) / SWIPE_THRESHOLD, 1);
     if (dx > 0) {
       setRevealColor(card, `rgba(139, 115, 85, ${progress})`);
@@ -767,27 +791,18 @@ export function App() {
                     type="button"
                   >
                     <div className="mail-card-header">
-                      <span className="mail-theme">{mail.aiTheme || mail.subject}</span>
-                      {mail.receivedAt ? <span className="mail-time">{relativeTime(mail.receivedAt)}</span> : null}
-                      {mail.aiFromWho ? <span className="mail-from-who">{mail.aiFromWho}</span> : null}
-                      {mail.isCustomized ? <span className="customized-badge">customized</span> : null}
+                      <div className="mail-card-header-top">
+                        <span className="mail-theme">{mail.aiTheme || mail.subject}</span>
+                        {mail.receivedAt ? <span className="mail-time">{relativeTime(mail.receivedAt)}</span> : null}
+                      </div>
+                      {(mail.aiFromWho || mail.isCustomized) ? (
+                        <div className="mail-card-header-bottom">
+                          {mail.aiFromWho ? <span className="mail-from-who">{mail.aiFromWho}</span> : null}
+                          {mail.isCustomized ? <span className="customized-badge">customized</span> : null}
+                        </div>
+                      ) : null}
                     </div>
-                    <div className="mail-summary-row">
-                      <p className="mail-summary">{mail.aiSummary || mail.summary}</p>
-                      <span
-                        className="open-gmail"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (isNative) {
-                            Browser.open({ url: mail.gmailUrl }).catch(() => window.open(mail.gmailUrl, '_blank'));
-                          } else {
-                            window.open(mail.gmailUrl, '_blank');
-                          }
-                        }}
-                      >
-                        Open
-                      </span>
-                    </div>
+                    <p className="mail-summary">{mail.aiSummary || mail.summary}</p>
                     {mail.attachments && mail.attachments.length > 0 ? (
                       <div className="mail-attachments">
                         {mail.attachments.map((att) => (
@@ -810,6 +825,23 @@ export function App() {
               <p className="mail-list-status">Scroll for more...</p>
             ) : null}
           </section>
+
+          <div className="open-gmail-bar">
+            <button
+              className="open-gmail-button"
+              type="button"
+              onClick={() => {
+                const url = 'https://mail.google.com';
+                if (isNative) {
+                  Browser.open({ url }).catch(() => window.open(url, '_blank'));
+                } else {
+                  window.open(url, '_blank');
+                }
+              }}
+            >
+              Open Gmail
+            </button>
+          </div>
         </main>
       </>
     );
@@ -821,29 +853,32 @@ export function App() {
       {feedbackPanel}
       {onboardingBoard}
       <main className="app-shell home-shell">
-        <button className="settings-button" type="button" aria-label="Settings" onClick={() => setShowPreferences(true)}>
-          <Settings size={28} />
-        </button>
+        <div className="top-bar">
+          {!isGmailConnected ? (
+            <button className={`connect-gmail-button${isConnectHighlighted ? ' is-highlighted' : ''}`} onClick={handleConnectGmail} type="button">
+              Connect Gmail
+            </button>
+          ) : <div />}
 
-        {!isGmailConnected ? (
-          <button className="connect-gmail-button" onClick={handleConnectGmail} type="button">
-            Connect Gmail
-          </button>
-        ) : null}
-
-        <div className="status-pills">
-          <span className={`status-pill is-${supabaseStatus}`}>
-            <span className="status-pill-text">Server{supabaseStatus === 'checking' ? '?' : ''}</span>
-            {supabaseStatus === 'checking' ? <Loader2 size={12} className="spinner" /> : null}
-            {supabaseStatus === 'ready' ? <Check size={12} /> : null}
-            {supabaseStatus === 'error' || supabaseStatus === 'missing' ? <X size={12} /> : null}
-          </span>
-          <span className={`status-pill is-gmail-${gmailStatusState}`}>
-            <span className="status-pill-text">Gmail{gmailStatusState === 'checking' ? '?' : ''}</span>
-            {gmailStatusState === 'checking' ? <Loader2 size={12} className="spinner" /> : null}
-            {gmailStatusState === 'connected' ? <Check size={12} /> : null}
-            {gmailStatusState === 'error' ? <X size={12} /> : null}
-          </span>
+          <div className="top-right-corner">
+            <div className="status-pills">
+              <span className={`status-pill is-${supabaseStatus}`}>
+                <span className="status-pill-text">Server{supabaseStatus === 'checking' ? '?' : ''}</span>
+                {supabaseStatus === 'checking' ? <Loader2 size={12} className="spinner" /> : null}
+                {supabaseStatus === 'ready' ? <Check size={12} /> : null}
+                {supabaseStatus === 'error' || supabaseStatus === 'missing' ? <X size={12} /> : null}
+              </span>
+              <span className={`status-pill is-gmail-${gmailStatusState}`}>
+                <span className="status-pill-text">Gmail{gmailStatusState === 'checking' ? '?' : ''}</span>
+                {gmailStatusState === 'checking' ? <Loader2 size={12} className="spinner" /> : null}
+                {gmailStatusState === 'connected' ? <Check size={12} /> : null}
+                {gmailStatusState === 'error' ? <X size={12} /> : null}
+              </span>
+            </div>
+            <button className="settings-button" type="button" aria-label="Settings" onClick={() => setShowPreferences(true)}>
+              <Settings size={36} />
+            </button>
+          </div>
         </div>
 
         {isSyncing ? (
@@ -858,7 +893,10 @@ export function App() {
           <h1>Throw them in a bin.</h1>
         </section>
 
-        <section className="bin-stage" aria-label="Mail bins">
+        <section className="bin-stage" aria-label="Mail bins" style={{ position: 'relative' }}>
+          {floatingMessage ? (
+            <div className="floating-toast">{floatingMessage}</div>
+          ) : null}
           {bins.map((bin) => (
             <button
               className={`bin-button bin-${bin.id}${pressedBin === bin.id ? ' is-selected' : ''}`}
@@ -868,7 +906,6 @@ export function App() {
               type="button"
             >
               <img src={bin.image} alt={`${bin.title} bin`} />
-              <span>{bin.title}</span>
             </button>
           ))}
         </section>

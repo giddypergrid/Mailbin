@@ -37,8 +37,21 @@ a {
 
 .hero {
   z-index: 1;
-  padding-top: 42px;
   text-align: center;
+}
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 2;
+  padding: 4px 0;
+}
+
+.top-right-corner {
+  display: flex;
+  align-items: center;
+  gap: 0;
 }
 
 .eyebrow {
@@ -64,10 +77,6 @@ h1 {
 }
 
 .settings-button {
-  position: absolute;
-  top: 20px;
-  right: 20px;
-  z-index: 2;
   padding: 14px;
   border: 0;
   color: #191919;
@@ -85,10 +94,6 @@ h1 {
 }
 
 .connect-gmail-button {
-  position: absolute;
-  top: 20px;
-  left: 20px;
-  z-index: 2;
   padding: 12px 18px;
   border: 0;
   border-radius: 999px;
@@ -99,6 +104,19 @@ h1 {
   font-weight: 900;
 }
 
+.connect-gmail-button.is-highlighted {
+  animation: connectJump 0.5s ease-out;
+  box-shadow: 0 0 0 4px #c9a96e, 0 8px 20px rgba(62, 46, 31, 0.2);
+}
+
+@keyframes connectJump {
+  0% { transform: translateY(0); }
+  30% { transform: translateY(-10px); }
+  60% { transform: translateY(-4px); }
+  80% { transform: translateY(-7px); }
+  100% { transform: translateY(0); }
+}
+
 .connect-gmail-button:hover,
 .connect-gmail-button:focus-visible {
   outline: none;
@@ -107,13 +125,11 @@ h1 {
 }
 
 .status-pills {
-  position: absolute;
-  top: 80px;
-  right: 22px;
-  z-index: 2;
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  flex-direction: row;
+  gap: 4px;
+  align-items: center;
+  margin-right: 6px;
 }
 
 .status-pill {
@@ -122,8 +138,8 @@ h1 {
   align-items: center;
   justify-content: center;
   gap: 2px;
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   border: 2px solid;
   font-size: 0.65rem;
@@ -172,6 +188,7 @@ h1 {
   align-items: flex-start;
   gap: 8px;
   isolation: isolate;
+  margin-top: 24px;
 }
 
 .bin-button {
@@ -185,6 +202,20 @@ h1 {
   cursor: pointer;
   filter: drop-shadow(0 22px 26px rgba(60, 42, 28, 0.16));
   transition: filter 180ms ease, transform 180ms ease;
+  animation: binFloat 3.6s ease-in-out infinite;
+}
+
+.bin-button:hover {
+  animation-play-state: paused;
+}
+
+.bin-emergency { animation-delay: 0s; }
+.bin-info { animation-delay: 0.8s; }
+.bin-maybe { animation-delay: 1.6s; }
+
+@keyframes binFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
 }
 
 .bin-button:hover,
@@ -258,20 +289,27 @@ h1 {
 
 .folder-shell {
   background: #f5f0e8;
-  min-height: auto;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
 }
 
 .folder-hero {
+  flex-shrink: 0;
+  height: 110px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 18px;
-  margin: 0 auto 18px;
+  gap: 14px;
+  margin: 0 auto 4px;
+  width: 100%;
 }
 
 .folder-bin-image {
-  width: min(30vw, 150px);
-  max-height: 180px;
+  width: min(22vw, 100px);
+  max-height: 95px;
   object-fit: contain;
   filter: drop-shadow(0 18px 20px rgba(60, 42, 28, 0.14));
   animation: float-bin 3.8s ease-in-out infinite;
@@ -279,14 +317,14 @@ h1 {
 
 .speech-bubble {
   position: relative;
-  max-width: 270px;
+  max-width: 220px;
   margin: 0;
-  padding: 12px 16px;
+  padding: 8px 12px;
   border: 2px solid color-mix(in srgb, var(--accent), #ffffff 24%);
   border-radius: 22px;
   background: rgba(255, 255, 255, 0.88);
   box-shadow: 0 16px 34px rgba(60, 42, 28, 0.1);
-  font-size: clamp(1rem, 2.6vw, 1.3rem);
+  font-size: clamp(0.82rem, 2vw, 0.95rem);
   font-weight: 900;
   letter-spacing: -0.04em;
 }
@@ -318,14 +356,15 @@ h1 {
 
 .mail-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   max-width: 720px;
-  max-height: 390px;
+  flex: 1;
   margin: 0 auto;
   overflow-y: auto;
-  padding: 0 4px 18px;
+  padding: 0 4px 8px;
   scrollbar-width: none;
   -ms-overflow-style: none;
+  width: 100%;
 }
 
 .mail-list::-webkit-scrollbar {
@@ -350,7 +389,7 @@ h1 {
   position: relative;
   overflow: hidden;
   border-radius: 16px;
-  touch-action: none;
+  touch-action: pan-y;
 }
 
 .swipe-reveal {
@@ -363,15 +402,18 @@ h1 {
 .mail-card {
   position: relative;
   z-index: 1;
-  display: block;
+  display: flex;
+  flex-direction: column;
+  min-height: 110px;
   width: 100%;
-  padding: 20px;
+  padding: 14px 18px;
   border: 1px solid #d8d0c0;
   border-radius: 16px;
   color: inherit;
   background: #f5f0e8;
   cursor: pointer;
   text-align: left;
+  overflow: hidden;
   transition: opacity 240ms ease, transform 260ms ease, border-color 160ms ease;
 }
 
@@ -402,10 +444,22 @@ h1 {
 
 .mail-card-header {
   display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mail-card-header-top {
+  display: flex;
   justify-content: space-between;
   align-items: baseline;
   gap: 8px;
   margin-bottom: 2px;
+}
+
+.mail-card-header-bottom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .mail-theme {
@@ -432,10 +486,14 @@ h1 {
 }
 
 .mail-summary {
-  margin: 0;
+  margin: 4px 0 0;
   font-size: 0.92rem;
   color: #4b3426;
   font-weight: 500;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .mail-summary-row {
@@ -496,18 +554,20 @@ h1 {
 
 .floating-toast {
   position: absolute;
-  top: -30px;
+  top: -44px;
   left: 50%;
   translate: -50% 0;
   background: #d4c5a9;
-  color: #333;
-  padding: 6px 14px;
-  border-radius: 10px;
-  font-size: 0.85rem;
-  font-weight: 500;
+  color: #3a3028;
+  padding: 10px 22px;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 700;
   white-space: nowrap;
   pointer-events: none;
-  animation: floatUp 1.4s ease-out forwards;
+  animation: floatUp 1.8s ease-out forwards;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  z-index: 100;
 }
 
 @keyframes floatUp {
@@ -958,7 +1018,7 @@ h1 {
   }
 
   .hero {
-    padding-top: 56px;
+    padding-top: 0;
   }
 
   .bin-stage {
@@ -978,11 +1038,11 @@ h1 {
   }
 
   .folder-bin-image {
-    width: min(34vw, 126px);
+    width: min(22vw, 90px);
   }
 
   .mail-card {
-    display: block;
+    display: flex;
   }
 }
 
@@ -1018,10 +1078,9 @@ h1 {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  width: 100%;
-  max-width: 720px;
-  margin: 0 auto 8px;
-  padding: 10px;
+  flex-shrink: 0;
+  margin: 0 auto 4px;
+  padding: 10px 20px;
   border: none;
   border-radius: 12px;
   background: #ede8dc;
@@ -1283,4 +1342,26 @@ h1 {
 .feedback-submit:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.open-gmail-bar {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+  padding: 10px 0 16px;
+}
+
+.open-gmail-button {
+  padding: 12px 32px;
+  border: 0;
+  border-radius: 999px;
+  background: #d4c5a9;
+  color: #191919;
+  font-weight: 900;
+  cursor: pointer;
+  transition: transform 160ms ease;
+}
+
+.open-gmail-button:hover {
+  transform: translateY(-2px);
 }
