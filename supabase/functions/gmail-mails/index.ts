@@ -56,5 +56,6 @@ function toMailItem(row: GmailEmailRow) {
     attachments: [],
     attachmentTotalKb: row.attachment_total_kb,
     hasAttachments: row.has_attachments,
+    isCustomized: row.is_customized,
   };
 }

@@ -20,15 +20,8 @@ export const CONFIG = {
     model: envString('MAILBIN_GEMINI_MODEL', 'gemini-2.5-flash-lite'),
   },
   coreMemory: {
-    maxRules: 10,
-    maxRuleLength: 200,
-    defaultRules: [
-      'Flag job-related emails (offers, interviews, rejections) as emergency.',
-      'Demote LinkedIn, Quora, and Medium social notifications to maybe.',
-      'Routine bank statements without action items belong in maybe, not emergency.',
-      'Family or partner messages about health, money, or safety are emergency.',
-      'Subscription / paid service emails about expiring trials or failed payments are emergency.',
-    ],
+    maxRules: 5,
+    maxWordsPerRule: 50,
     maxLength: envNumber('MAILBIN_CORE_MEMORY_MAX_LENGTH', 5000),
     attachmentKbMin: envNumber('MAILBIN_ATTACHMENT_KB_MIN', 1),
     attachmentKbMax: envNumber('MAILBIN_ATTACHMENT_KB_MAX', 1000),

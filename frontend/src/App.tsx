@@ -62,9 +62,12 @@ function relativeTime(iso: string | null | undefined): string {
   if (days < 7) return `${days}d ago`;
   const weeks = Math.floor(days / 7);
   if (weeks < 5) return `${weeks}w ago`;
-  const months = Math.floor(days / 30);
-  if (months < 12) return `${months}mo ago`;
-  return `${Math.floor(months / 12)}y ago`;
+  const date = new Date(ts);
+  const now = new Date();
+  if (date.getFullYear() === now.getFullYear()) {
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 export function App() {
@@ -282,6 +285,7 @@ export function App() {
 
   useEffect(() => {
     if (!selectedBin || !isGmailConnected) return;
+    setNewEmailCount(0);
     gmailFetch(selectedBin);
   }, [selectedBin, isGmailConnected, gmailFetch]);
 
@@ -553,26 +557,32 @@ export function App() {
 
         <div className="board-tag">Instructions</div>
         <div className="board-rules">
-          <p className="board-rules-hint">Custom classification rules (up to 10, each ≤200 characters)</p>
-          {Array.from({ length: 10 }).map((_, index) => (
-            <input
-              key={index}
-              type="text"
-              className="board-rule-input"
-              placeholder={`Rule ${index + 1} — e.g. "Temu promos → emergency"`}
-              value={coreMemory?.customRules[index] ?? ''}
-              maxLength={200}
-              onChange={(e) => setCoreMemory((prev) => {
-                if (!prev) return null;
-                const rules = [...prev.customRules];
-                rules[index] = e.target.value;
-                return { ...prev, customRules: rules };
-              })}
-            />
-          ))}
+          <p className="board-rules-hint">Your instructions (up to 5, each ≤50 words)</p>
+          {Array.from({ length: 5 }).map((_, index) => {
+            const ruleValue = coreMemory?.customRules[index] ?? '';
+            const wordCount = ruleValue.trim().split(/\s+/).filter(Boolean).length;
+            const isOver = ruleValue.trim().length > 0 && wordCount > 50;
+            return (
+              <div key={index} className="board-rule-wrapper">
+                <textarea
+                  className={`board-rule-input${isOver ? ' is-over-limit' : ''}`}
+                  placeholder={`Rule ${index + 1} — e.g. "Temu promos → emergency"`}
+                  value={ruleValue}
+                  rows={2}
+                  onChange={(e) => setCoreMemory((prev) => {
+                    if (!prev) return null;
+                    const rules = [...prev.customRules];
+                    rules[index] = e.target.value;
+                    return { ...prev, customRules: rules };
+                  })}
+                />
+                {ruleValue.trim().length > 0 ? (
+                  <span className={`board-rule-word-count${isOver ? ' is-over' : ''}`}>{wordCount}/50 words</span>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
-
-        <div className="board-center" />
 
         <div className="board-tag">Preferences</div>
         <div className="board-preference-row">
@@ -596,6 +606,8 @@ export function App() {
           disabled={savingPreferences}
           onClick={() => {
             if (!coreMemory) return;
+            const hasOverLimit = coreMemory.customRules.some((r) => r.trim().split(/\s+/).filter(Boolean).length > 50);
+            if (hasOverLimit) { setPreferencesError('Each instruction must be 50 words or fewer.'); return; }
             saveCoreMemory(coreMemory);
           }}
         >
@@ -710,34 +722,31 @@ export function App() {
             </div>
           </section>
 
-          <button
-            className="new-emails-button"
-            type="button"
-            onClick={() => {
-              mailListRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-              if (newEmailCount > 0 && selectedBin) {
-                setNewEmailCount(0);
-                gmailFetch(selectedBin);
-              }
-            }}
-          >
-            {isSyncing ? (
-              <>
-                <RefreshCw size={14} className="sync-spinner" />
-                Syncing...
-              </>
-            ) : newEmailCount > 0 ? (
-              <>
-                <ArrowUp size={14} />
-                New Message
-              </>
-            ) : (
-              <>
-                <ArrowUp size={14} />
-                Back to top
-              </>
-            )}
-          </button>
+          {(isSyncing || newEmailCount > 0) ? (
+            <button
+              className="new-emails-button"
+              type="button"
+              onClick={() => {
+                mailListRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+                if (newEmailCount > 0 && selectedBin) {
+                  setNewEmailCount(0);
+                  gmailFetch(selectedBin);
+                }
+              }}
+            >
+              {isSyncing ? (
+                <>
+                  <RefreshCw size={14} className="sync-spinner" />
+                  Syncing...
+                </>
+              ) : (
+                <>
+                  <ArrowUp size={14} />
+                  New Message
+                </>
+              )}
+            </button>
+          ) : null}
 
           <section className="mail-list" aria-label={`${activeBin.title} mail list`} ref={mailListRef}>
             {currentBinStatus === 'empty' ? (
@@ -767,10 +776,16 @@ export function App() {
                     type="button"
                   >
                     <div className="mail-card-header">
-                      <span className="mail-theme">{mail.aiTheme || mail.subject}</span>
-                      {mail.receivedAt ? <span className="mail-time">{relativeTime(mail.receivedAt)}</span> : null}
-                      {mail.aiFromWho ? <span className="mail-from-who">{mail.aiFromWho}</span> : null}
-                      {mail.isCustomized ? <span className="customized-badge">customized</span> : null}
+                      <div className="mail-card-row1">
+                        <span className="mail-theme">{mail.aiTheme || mail.subject}</span>
+                        {mail.receivedAt ? <span className="mail-time">{relativeTime(mail.receivedAt)}</span> : null}
+                      </div>
+                      {(mail.aiFromWho || mail.isCustomized) ? (
+                        <div className="mail-card-row2">
+                          {mail.aiFromWho ? <span className="mail-from-who">{mail.aiFromWho}</span> : null}
+                          {mail.isCustomized ? <span className="customized-badge">customized</span> : null}
+                        </div>
+                      ) : null}
                     </div>
                     <div className="mail-summary-row">
                       <p className="mail-summary">{mail.aiSummary || mail.summary}</p>
@@ -821,17 +836,13 @@ export function App() {
       {feedbackPanel}
       {onboardingBoard}
       <main className="app-shell home-shell">
-        <button className="settings-button" type="button" aria-label="Settings" onClick={() => setShowPreferences(true)}>
-          <Settings size={28} />
-        </button>
-
         {!isGmailConnected ? (
           <button className="connect-gmail-button" onClick={handleConnectGmail} type="button">
             Connect Gmail
           </button>
         ) : null}
 
-        <div className="status-pills">
+        <div className="home-top-right">
           <span className={`status-pill is-${supabaseStatus}`}>
             <span className="status-pill-text">Server{supabaseStatus === 'checking' ? '?' : ''}</span>
             {supabaseStatus === 'checking' ? <Loader2 size={12} className="spinner" /> : null}
@@ -844,6 +855,9 @@ export function App() {
             {gmailStatusState === 'connected' ? <Check size={12} /> : null}
             {gmailStatusState === 'error' ? <X size={12} /> : null}
           </span>
+          <button className="settings-button" type="button" aria-label="Settings" onClick={() => setShowPreferences(true)}>
+            <Settings size={22} />
+          </button>
         </div>
 
         {isSyncing ? (

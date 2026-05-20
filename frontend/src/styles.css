@@ -37,7 +37,7 @@ a {
 
 .hero {
   z-index: 1;
-  padding-top: 42px;
+  padding-top: 72px;
   text-align: center;
 }
 
@@ -63,12 +63,21 @@ h1 {
   letter-spacing: -0.07em;
 }
 
-.settings-button {
+.home-top-right {
   position: absolute;
-  top: 20px;
-  right: 20px;
+  top: 16px;
+  right: 16px;
   z-index: 2;
-  padding: 14px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-button {
+  display: grid;
+  place-items: center;
+  padding: 10px;
   border: 0;
   color: #191919;
   background: transparent;
@@ -106,15 +115,6 @@ h1 {
   background: #c9b896;
 }
 
-.status-pills {
-  position: absolute;
-  top: 80px;
-  right: 22px;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
 
 .status-pill {
   display: inline-flex;
@@ -167,11 +167,11 @@ h1 {
 
 .bin-stage {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: flex-start;
-  gap: 8px;
+  flex-direction: column;
+  align-items: center;
+  gap: 36px;
   isolation: isolate;
+  padding-bottom: 36px;
 }
 
 .bin-button {
@@ -210,15 +210,16 @@ h1 {
 }
 
 .bin-emergency {
-  width: min(28vw, 200px);
+  width: min(42vw, 220px);
 }
 
 .bin-info {
-  width: min(28vw, 200px);
+  width: min(42vw, 220px);
 }
 
 .bin-maybe {
-  width: min(38vw, 280px);
+  width: min(52vw, 260px);
+  margin-top: 16px;
 }
 
 .bin-button span {
@@ -388,8 +389,6 @@ h1 {
   opacity: 0;
 }
 
-
-
 .mail-card h2 {
   margin-bottom: 0;
   font-size: 1.1rem;
@@ -402,10 +401,22 @@ h1 {
 
 .mail-card-header {
   display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 2px;
+}
+
+.mail-card-row1 {
+  display: flex;
   justify-content: space-between;
   align-items: baseline;
   gap: 8px;
-  margin-bottom: 2px;
+}
+
+.mail-card-row2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .mail-theme {
@@ -627,15 +638,27 @@ h1 {
   color: #8b7a60;
 }
 
+.board-rule-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .board-rule-input {
   width: 100%;
+  min-height: 56px;
   padding: 8px 10px;
   border: 1px solid #d8d5c8;
   border-radius: 6px;
   font-size: 0.85rem;
   font-family: inherit;
   background: #fffdf8;
+  resize: vertical;
   transition: border-color 0.15s;
+}
+
+.board-rule-input.is-over-limit {
+  border-color: #c0392b;
 }
 
 .board-rule-input:focus {
@@ -647,13 +670,16 @@ h1 {
   color: #a0a0a0;
 }
 
-.board-center {
-  flex: 1;
-  min-height: 60px;
-  border-radius: 14px;
-  border: 2px dashed #d8d0c0;
-  background: rgba(255, 255, 255, 0.35);
+.board-rule-word-count {
+  align-self: flex-end;
+  font-size: 0.72rem;
+  color: #8b7a60;
 }
+
+.board-rule-word-count.is-over {
+  color: #c0392b;
+}
+
 
 .board-preference-row {
   padding: 14px 16px;
@@ -958,23 +984,19 @@ h1 {
   }
 
   .hero {
-    padding-top: 56px;
-  }
-
-  .bin-stage {
-    height: 240px;
+    padding-top: 72px;
   }
 
   .bin-emergency {
-    width: 46%;
+    width: min(52vw, 180px);
   }
 
   .bin-info {
-    width: 46%;
+    width: min(52vw, 180px);
   }
 
   .bin-maybe {
-    width: 70%;
+    width: min(64vw, 220px);
   }
 
   .folder-bin-image {
