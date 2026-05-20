@@ -298,11 +298,11 @@ h1 {
 
 .folder-hero {
   flex-shrink: 0;
-  height: 110px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 14px;
+  padding: 6px 0;
   margin: 0 auto 4px;
   width: 100%;
 }
@@ -408,7 +408,7 @@ h1 {
   min-height: 110px;
   width: 100%;
   padding: 14px 18px;
-  border: 1px solid #d8d0c0;
+  border: 2px solid #8b6340;
   border-radius: 16px;
   color: inherit;
   background: #f5f0e8;
@@ -445,22 +445,17 @@ h1 {
 
 .mail-card-header {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.mail-card-header-top {
-  display: flex;
   justify-content: space-between;
   align-items: baseline;
   gap: 8px;
-  margin-bottom: 2px;
+  margin-bottom: 4px;
 }
 
-.mail-card-header-bottom {
+.mail-card-meta {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 6px;
+  flex-shrink: 0;
 }
 
 .mail-theme {

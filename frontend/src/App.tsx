@@ -808,16 +808,12 @@ export function App() {
                     type="button"
                   >
                     <div className="mail-card-header">
-                      <div className="mail-card-header-top">
-                        <span className="mail-theme">{mail.aiTheme || mail.subject}</span>
+                      <span className="mail-theme">{mail.aiTheme || mail.subject}</span>
+                      <div className="mail-card-meta">
+                        {mail.aiFromWho ? <span className="mail-from-who">{mail.aiFromWho}</span> : null}
+                        {mail.isCustomized ? <span className="customized-badge">customized</span> : null}
                         {mail.receivedAt ? <span className="mail-time">{relativeTime(mail.receivedAt)}</span> : null}
                       </div>
-                      {(mail.aiFromWho || mail.isCustomized) ? (
-                        <div className="mail-card-header-bottom">
-                          {mail.aiFromWho ? <span className="mail-from-who">{mail.aiFromWho}</span> : null}
-                          {mail.isCustomized ? <span className="customized-badge">customized</span> : null}
-                        </div>
-                      ) : null}
                     </div>
                     <p className="mail-summary">{mail.aiSummary || mail.summary}</p>
                     {mail.attachments && mail.attachments.length > 0 ? (
