@@ -4,7 +4,7 @@ import type { BinId, MailItem, CoreMemory } from './types';
 import { supabase } from './supabase';
 import { log, logWeird } from './logger';
 import { Dropdown } from './Dropdown';
-import { Settings, X, RefreshCw, ArrowUp, Loader2, Check } from 'lucide-react';
+import { Settings, X, RefreshCw, ArrowUp, Loader2, Check, HelpCircle, Pointer } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 import { Browser } from '@capacitor/browser';
 import { App as CapacitorApp } from '@capacitor/app';
@@ -682,10 +682,20 @@ export function App() {
                   <img className="onboarding-bin-img" src={bin.image} alt={`${bin.title} bin`} />
                   <div className="onboarding-bin-text">
                     <span className="onboarding-bin-name" style={{ color: bin.accent }}>{bin.title}</span>
-                    <span className="onboarding-bin-desc">{binSpeech[bin.id]}</span>
+                    <span className="onboarding-bin-desc">
+                      {bin.id === 'emergency' && 'Boss emailing at 11pm. Bank drama. Mom worried. All here.'}
+                      {bin.id === 'info' && 'OTP codes, delivery tracking, that voucher you\'ll use in 3 weeks.'}
+                      {bin.id === 'maybe' && 'LinkedIn "congrats". Newsletters. The usual noise.'}
+                    </span>
                   </div>
                 </div>
               ))}
+            </div>
+            <div className="onboarding-sleepy-note">
+              <div className="onboarding-sleepy-icons">
+                {bins.map((bin) => <img key={bin.id} src={bin.sleepyImage} alt={bin.title} className="onboarding-sleepy-img" />)}
+              </div>
+              <span>Nothing unread — don't wake them up!</span>
             </div>
           </>
         ) : null}
@@ -695,21 +705,35 @@ export function App() {
             <h2 className="onboarding-title">How to use</h2>
             <div className="onboarding-swipe-demo">
               <div className="onboarding-swipe-item">
-                <div className="onboarding-fake-card">
-                  <span className="onboarding-fake-theme">Email</span>
+                <div className="onboarding-card-scene is-right">
+                  <div className="onboarding-fake-card is-swiped-right">
+                    <span className="onboarding-fake-theme">Invoice overdue — pay now</span>
+                  </div>
                 </div>
                 <div className="onboarding-swipe-hint">
-                  <span className="onboarding-arrow right">→</span>
-                  <span>Swipe right to read an email</span>
+                  <span className="onboarding-swipe-hand"><Pointer size={30} /></span>
+                  <span>Swipe right — read &amp; dismiss</span>
                 </div>
               </div>
               <div className="onboarding-swipe-item">
-                <div className="onboarding-fake-card">
-                  <span className="onboarding-fake-theme">Email</span>
+                <div className="onboarding-card-scene is-left">
+                  <div className="onboarding-fake-card is-swiped-left">
+                    <span className="onboarding-fake-theme">LinkedIn: someone viewed you</span>
+                  </div>
                 </div>
                 <div className="onboarding-swipe-hint">
-                  <span className="onboarding-arrow left">←</span>
-                  <span>Swipe left if you think email is wrongly binned or summarized!</span>
+                  <span className="onboarding-swipe-hand onboarding-swipe-hand-flip"><Pointer size={30} /></span>
+                  <span>Swipe left — AI got it wrong? teach it</span>
+                </div>
+                <div className="onboarding-teach-preview">
+                  <div className="onboarding-teach-strip" />
+                  <div className="onboarding-teach-content">
+                    <span className="onboarding-teach-title">Teach the AI</span>
+                    <div className="onboarding-teach-summary">LinkedIn told you 3 people viewed your profile.</div>
+                    <div className="onboarding-teach-input">This is promo spam, not maybe.</div>
+                    <button className="onboarding-teach-btn" type="button" disabled>Submit feedback</button>
+                    <span className="onboarding-teach-nudge">The more you teach, the smarter your bins get!</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -722,12 +746,14 @@ export function App() {
             <div className="onboarding-status-demo">
               <div className="onboarding-status-pill-demo is-ready">Server <Check size={12} /></div>
               <div className="onboarding-status-pill-demo is-connected">Gmail <Check size={12} /></div>
+              <div className="onboarding-status-icon-demo"><HelpCircle size={36} /></div>
+              <div className="onboarding-status-icon-demo"><Settings size={36} /></div>
             </div>
             <p className="onboarding-status-text">
-              This is where you put your instructions! Try it out!
+              Top right corner — tap <HelpCircle size={13} style={{ display: 'inline', verticalAlign: 'middle' }} /> to reopen this guide, <Settings size={13} style={{ display: 'inline', verticalAlign: 'middle' }} /> for your instructions.
             </p>
             <p className="onboarding-dev-note">
-              The app is still under development, write to sunziyuan000@gmail.com!
+              Still under development — write to sunziyuan000@gmail.com!
             </p>
           </>
         ) : null}
@@ -909,6 +935,9 @@ export function App() {
                 {gmailStatusState === 'error' ? <X size={12} /> : null}
               </span>
             </div>
+            <button className="settings-button" type="button" aria-label="Guide" onClick={() => setOnboardingStep(1)}>
+              <HelpCircle size={36} />
+            </button>
             <button className="settings-button" type="button" aria-label="Settings" onClick={() => setShowPreferences(true)}>
               <Settings size={36} />
             </button>

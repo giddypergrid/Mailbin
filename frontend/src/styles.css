@@ -77,7 +77,7 @@ h1 {
 }
 
 .settings-button {
-  padding: 14px;
+  padding: 6px;
   border: 0;
   color: #191919;
   background: transparent;
@@ -849,8 +849,7 @@ h1 {
   gap: 14px;
   padding: 12px 14px;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid #e0d8c8;
+  border: 1px solid #d8d0c0;
   text-align: left;
 }
 
@@ -879,6 +878,106 @@ h1 {
   color: #4b3426;
 }
 
+.onboarding-sleepy-note {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #8b7a60;
+}
+
+.onboarding-sleepy-icons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.onboarding-sleepy-img {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+}
+
+.onboarding-teach-preview {
+  display: flex;
+  width: 100%;
+  border-radius: 12px;
+  background: #fffdf8;
+  box-shadow: 0 3px 12px rgba(30, 20, 14, 0.12);
+  overflow: hidden;
+}
+
+.onboarding-teach-strip {
+  width: 5px;
+  flex-shrink: 0;
+  background: #b27a3c;
+}
+
+.onboarding-teach-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.onboarding-teach-title {
+  font-weight: 900;
+  font-size: 0.95rem;
+  color: #241c18;
+}
+
+.onboarding-teach-summary {
+  font-size: 0.8rem;
+  color: #4b3426;
+  background: #f5f0e8;
+  border-radius: 8px;
+  padding: 6px 8px;
+  line-height: 1.4;
+}
+
+.onboarding-teach-input {
+  font-size: 0.8rem;
+  color: #241c18;
+  background: #f5f0e8;
+  border: 1.5px solid #d8d0c0;
+  border-radius: 8px;
+  padding: 6px 8px;
+  line-height: 1.4;
+}
+
+.onboarding-teach-btn {
+  align-self: flex-start;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: #241c18;
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border: 0;
+  opacity: 0.45;
+  cursor: default;
+}
+
+.onboarding-teach-nudge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #8b6340;
+  line-height: 1.4;
+}
+
+.onboarding-status-icon-demo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #4b3426;
+  opacity: 0.8;
+}
+
 .onboarding-swipe-demo {
   display: grid;
   gap: 18px;
@@ -892,14 +991,40 @@ h1 {
   gap: 10px;
 }
 
-.onboarding-fake-card {
+.onboarding-card-scene {
+  position: relative;
   width: 100%;
   max-width: 280px;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.onboarding-card-scene.is-right {
+  background: #8b6340;
+}
+
+.onboarding-card-scene.is-left {
+  background: #c0392b;
+}
+
+.onboarding-fake-card {
+  width: 100%;
   padding: 14px 16px;
   border-radius: 14px;
   background: #f5f0e8;
-  border: 1px solid #d8d0c0;
+  border: 2px solid #8b6340;
   text-align: left;
+  position: relative;
+  z-index: 1;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+}
+
+.onboarding-fake-card.is-swiped-right {
+  transform: translateX(54px);
+}
+
+.onboarding-fake-card.is-swiped-left {
+  transform: translateX(-54px);
 }
 
 .onboarding-fake-theme {
@@ -917,32 +1042,22 @@ h1 {
   color: #4b3426;
 }
 
-.onboarding-arrow {
+.onboarding-swipe-hand {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  font-size: 1.1rem;
-  font-weight: 900;
+  color: #4b3426;
   flex-shrink: 0;
 }
 
-.onboarding-arrow.right {
-  background: rgba(139, 115, 85, 0.15);
-  color: #8B7355;
-}
-
-.onboarding-arrow.left {
-  background: rgba(192, 57, 43, 0.12);
-  color: #c0392b;
+.onboarding-swipe-hand-flip {
+  transform: scaleX(-1);
 }
 
 .onboarding-status-demo {
   display: flex;
   gap: 10px;
   justify-content: center;
+  align-items: center;
 }
 
 .onboarding-status-pill-demo {
@@ -1014,15 +1129,16 @@ h1 {
 }
 
 .onboarding-nav-btn.primary {
-  background: #241c18;
-  color: #fff;
-  border-color: #241c18;
-  box-shadow: 0 8px 20px rgba(62, 46, 31, 0.14);
+  background: #f5f0e8;
+  color: #241c18;
+  border-color: #8b6340;
+  box-shadow: 0 4px 12px rgba(62, 46, 31, 0.1);
 }
 
 .onboarding-nav-btn.primary:hover {
   transform: translateY(-1px);
-  box-shadow: 0 12px 28px rgba(62, 46, 31, 0.2);
+  background: #ede6d6;
+  box-shadow: 0 8px 20px rgba(62, 46, 31, 0.15);
 }
 
 @keyframes fade-in {
