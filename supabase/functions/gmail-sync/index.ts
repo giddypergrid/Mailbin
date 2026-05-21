@@ -339,27 +339,58 @@ Deno.serve(async (req: Request) => {
         body: extractBody(message, 2000),
       }));
 
-      // One Gemini call for the whole batch — amortises system prompt.
-      let classification: Record<string, { bin: string; summary: string; theme: string; fromWho: string; isCustomized: boolean }> = {};
-      if (CONFIG.gemini.apiKey) {
-        await waitForRpmSlot();
-        geminiCallTimestamps.push(Date.now());
-        const outcome = await classifyWithGemini(userId, customRules, emailInputs);
-        classification = outcome.classifications;
+      // Split the batch into N-email chunks fired at Gemini in PARALLEL.
+      // Same RPM cost as one big call (chunkSize ≤ rpmLimit assumed) but
+      // wall-clock drops because per-call latency is sub-linear in input size.
+      // Partial failure: successful chunks upsert, failed chunks' emails are
+      // pushed to failedMessageIds and retried on next sync via DB dedup.
+      const classification: Record<string, { bin: string; summary: string; theme: string; fromWho: string; isCustomized: boolean }> = {};
+      const successfulIds = new Set<string>();
 
-        if (outcome.errorStage === 'rate') {
-          geminiErrorStage = 'gemini-rate';
-          log('GMAIL-SYNC', 'Stopping due to Gemini rate limit', { userId, syncedCount });
-          break;
+      if (CONFIG.gemini.apiKey) {
+        const chunkSize = CONFIG.gemini.chunkSize;
+        const chunks: Array<typeof emailInputs> = [];
+        for (let chunkStart = 0; chunkStart < emailInputs.length; chunkStart += chunkSize) {
+          chunks.push(emailInputs.slice(chunkStart, chunkStart + chunkSize));
         }
-        if (outcome.errorStage === 'parse') {
-          geminiErrorStage = 'gemini-parse';
-          logWeird('GMAIL-SYNC', 'Stopping due to Gemini parse failure', { userId, syncedCount, batchSize: validMessages.length });
-          break;
+
+        const chunkResults = await Promise.all(chunks.map(async (chunk) => {
+          await waitForRpmSlot();
+          geminiCallTimestamps.push(Date.now());
+          const outcome = await classifyWithGemini(userId, customRules, chunk);
+          return { chunk, outcome };
+        }));
+
+        for (const { chunk, outcome } of chunkResults) {
+          if (outcome.errorStage === 'rate') {
+            geminiErrorStage = 'gemini-rate';
+          } else if (outcome.errorStage === 'parse' && geminiErrorStage !== 'gemini-rate') {
+            geminiErrorStage = 'gemini-parse';
+          }
+
+          if (outcome.errorStage) {
+            for (const email of chunk) failedMessageIds.push(email.id);
+            continue;
+          }
+
+          Object.assign(classification, outcome.classifications);
+          for (const email of chunk) successfulIds.add(email.id);
         }
+
+        if (geminiErrorStage) {
+          logWeird('GMAIL-SYNC', 'Gemini partial failure', {
+            userId,
+            errorStage: geminiErrorStage,
+            failedChunkCount: chunkResults.filter((entry) => entry.outcome.errorStage).length,
+            successfulChunkCount: chunkResults.filter((entry) => !entry.outcome.errorStage).length,
+          });
+        }
+      } else {
+        for (const message of validMessages) successfulIds.add(message.id);
       }
 
-      for (const message of validMessages) {
+      const messagesToUpsert = validMessages.filter((message) => successfulIds.has(message.id));
+      const upsertRecords = messagesToUpsert.map((message) => {
         const geminiResult = classification[message.id];
         const fromValue = getHeader(message, 'From');
         const fromParsed = parseFromHeader(fromValue);
@@ -367,34 +398,48 @@ Deno.serve(async (req: Request) => {
         const receivedAt = message.internalDate ? new Date(Number(message.internalDate)).toISOString() : null;
         const labelIds = message.labelIds ?? [];
         const isReadInGmail = !labelIds.includes('UNREAD');
-
         const rawAttachments = collectAttachments(message.payload?.parts);
         const attachmentResult = rawAttachments.length > 0 ? processAttachments(rawAttachments, maxAttachmentKb) : null;
 
-        await upsertEmail(supabaseUrl, serviceRoleKey, {
-          user_id: userId,
-          gmail_message_id: message.id,
-          thread_id: message.threadId,
-          from_name: fromParsed.name,
-          from_email: fromParsed.email,
-          subject,
-          summary: truncateWords(geminiResult?.summary || message.snippet || subject, 10),
-          received_at: receivedAt,
-          bin: geminiResult?.bin || 'maybe',
-          ai_theme: geminiResult?.theme || (CONFIG.gemini.apiKey && !geminiResult ? 'Unclassified' : ''),
-          ai_from_who: geminiResult?.fromWho || fromParsed.name,
-          is_customized: geminiResult?.isCustomized ?? false,
-          is_read: isReadInGmail,
-          has_attachments: rawAttachments.length > 0,
-          attachment_total_kb: attachmentResult ? Math.round(attachmentResult.totalKb) : 0,
-        });
+        return {
+          payload: {
+            user_id: userId,
+            gmail_message_id: message.id,
+            thread_id: message.threadId,
+            from_name: fromParsed.name,
+            from_email: fromParsed.email,
+            subject,
+            summary: truncateWords(geminiResult?.summary || message.snippet || subject, 10),
+            received_at: receivedAt,
+            bin: geminiResult?.bin || 'maybe',
+            ai_theme: geminiResult?.theme || (CONFIG.gemini.apiKey && !geminiResult ? 'Unclassified' : ''),
+            ai_from_who: geminiResult?.fromWho || fromParsed.name,
+            is_customized: geminiResult?.isCustomized ?? false,
+            is_read: isReadInGmail,
+            has_attachments: rawAttachments.length > 0,
+            attachment_total_kb: attachmentResult ? Math.round(attachmentResult.totalKb) : 0,
+          },
+          receivedAt,
+          binKey: (geminiResult?.bin || 'maybe') as BinKey,
+        };
+      });
+
+      // Parallel DB upserts — was 50 sequential awaits, now one Promise.all.
+      await Promise.all(upsertRecords.map(({ payload }) =>
+        upsertEmail(supabaseUrl, serviceRoleKey, payload),
+      ));
+
+      for (const { receivedAt, binKey } of upsertRecords) {
         syncedCount++;
-        const binKey = (geminiResult?.bin || 'maybe') as BinKey;
         if (binKey in syncedByBin) syncedByBin[binKey]++;
         if (receivedAt && (!oldestReceivedAt || receivedAt < oldestReceivedAt)) {
           oldestReceivedAt = receivedAt;
         }
       }
+
+      // If any chunk in this batch failed, stop after the current batch so the
+      // frontend can wait + retry with the failed-IDs picked up via DB dedup.
+      if (geminiErrorStage) break;
 
       if (batchStart + classifyBatchSize < newMessages.length) {
         await new Promise((resolve) => setTimeout(resolve, batchDelay));

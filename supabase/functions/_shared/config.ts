@@ -25,6 +25,9 @@ export const CONFIG = {
     // gemini-2.5-flash free tier: 10 RPM, 250K TPM, 250 RPD.
     model: envString('MAILBIN_GEMINI_MODEL', 'gemini-2.5-flash'),
     rpm: envNumber('MAILBIN_GEMINI_RPM', 10),
+    // Split each classify batch into N-email chunks fired in parallel. 10
+    // gives ~5 parallel calls for a 50-email baseline → ~15-20s vs ~50-70s.
+    chunkSize: envNumber('MAILBIN_GEMINI_CHUNK_SIZE', 10),
   },
   coreMemory: {
     maxRules: 5,
