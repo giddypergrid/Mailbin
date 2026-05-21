@@ -403,10 +403,14 @@ export function App() {
 
   const gmailStatusState = getGmailStatusState();
 
+  function shakeConnectButton() {
+    setIsConnectHighlighted(true);
+    setTimeout(() => setIsConnectHighlighted(false), 600);
+  }
+
   function handleBinClick(id: BinId) {
     if (!isGmailConnected) {
-      setIsConnectHighlighted(true);
-      setTimeout(() => setIsConnectHighlighted(false), 600);
+      shakeConnectButton();
       return;
     }
     setPressedBin(id);
@@ -993,10 +997,10 @@ export function App() {
                 {gmailStatusState === 'error' ? <X size={12} /> : null}
               </span>
             </div>
-            <button className="settings-button" type="button" aria-label="Guide" onClick={() => setOnboardingStep(1)}>
+            <button className="settings-button" type="button" aria-label="Guide" onClick={() => { if (!isGmailConnected) { shakeConnectButton(); return; } setOnboardingStep(1); }}>
               <HelpCircle size={36} />
             </button>
-            <button className="settings-button" type="button" aria-label="Settings" onClick={() => setShowPreferences(true)}>
+            <button className="settings-button" type="button" aria-label="Settings" onClick={() => { if (!isGmailConnected) { shakeConnectButton(); return; } setShowPreferences(true); }}>
               <Settings size={36} />
             </button>
           </div>

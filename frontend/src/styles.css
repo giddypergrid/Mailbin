@@ -95,7 +95,7 @@ h1 {
 }
 
 .connect-gmail-button {
-  padding: 12px 18px;
+  padding: 9px 14px;
   border: 0;
   border-radius: 999px;
   color: #191919;
@@ -103,6 +103,7 @@ h1 {
   box-shadow: 0 8px 20px rgba(62, 46, 31, 0.12);
   cursor: pointer;
   font-weight: 900;
+  font-size: 0.9rem;
 }
 
 .connect-gmail-button.is-highlighted {

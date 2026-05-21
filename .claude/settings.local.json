@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx supabase *)",
+      "Bash(git add *)",
+      "Bash(git checkout *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(git commit -m 'fix: unified bin heights and compact mail cards for 4/screen on phone *)",
+      "Bash(git pull *)",
+      "Bash(npx tsc *)",
+      "Bash(git commit *)",
+      "Bash(npm --prefix frontend run build)",
+      "Bash(curl.exe -i -X OPTIONS \"https://ghsrkpghruvhibqjuymr.supabase.co/functions/v1/core-memory\" -H \"Origin: https://localhost\" -H \"Access-Control-Request-Method: PUT\" -H \"Access-Control-Request-Headers: authorization, content-type\")"
+    ]
+  }
+}
