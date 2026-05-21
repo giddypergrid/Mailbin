@@ -334,6 +334,15 @@ export function App() {
     gmailFetch(selectedBin);
   }, [selectedBin, isGmailConnected, gmailFetch]);
 
+  // Populate all bin statuses after sync finishes so the home screen reflects
+  // sleepy/awake correctly without requiring the user to enter each bin first.
+  useEffect(() => {
+    if (!isGmailConnected || isSyncing) return;
+    bins.forEach((bin) => {
+      if (binStatuses[bin.id] === 'idle') gmailFetch(bin.id);
+    });
+  }, [isGmailConnected, isSyncing, gmailFetch]);
+
   const loadMoreGmail = useCallback(() => {
     if (!selectedBin) return;
     const cursor = binCursors[selectedBin];
