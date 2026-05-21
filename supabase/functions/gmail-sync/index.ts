@@ -3,8 +3,8 @@
  * =======================
  *
  * Triggered every page load (frontend fire-and-forget). Backend processes
- * all unread emails since last_synced_at, writing to DB oldest-first so
- * new emails stack chronologically after existing ones — no gap.
+ * unread emails since last_synced_at, writing to DB oldest-first so new
+ * emails stack chronologically after existing ones — no gap.
  *
  * Flow:
  *   1. Baseline (first connect, last_synced_at = null):
@@ -13,21 +13,26 @@
  *      Fetch up to MAILBIN_SYNC_INCREMENTAL_MAX (200, 0 = no cap) emails
  *      received after last_synced_at. Paginates through all Gmail pages.
  *   3. Reverse all IDs → oldest-first for chronological DB insertion.
- *   4. Dedup against DB (fetchExistingMessageIds). If user exited mid-sync
- *      last time, already-processed emails are skipped — no duplicates.
- *   5. Process in batches of 3: fetch detail → Gemini classify → upsert.
- *   6. Rate limit (429/503): retry up to 3 times with 5s delay (built
- *      into gmail-client.ts).
- *   7. Only advance last_synced_at when hasMore = false (fully caught up).
- *      Baseline hitting cap: set to 1 day before oldest processed email so
- *      next call catches remaining unread via incremental after: query.
+ *   4. Dedup against DB (fetchExistingMessageIds).
+ *   5. Process in batches: fetch detail → Gemini classify → upsert.
+ *   6. Only advance last_synced_at when sync completed cleanly:
+ *      !hasError && !hasMore. Baseline hitting cap sets cursor to 1 day
+ *      before oldest processed email.
+ *
+ * Error reporting (uniform fallback to frontend, no internal retries):
+ *   Every failure surfaces as `errorStage` to the frontend:
+ *     - 'gmail-list'   — messages.list call failed (non-2xx)
+ *     - 'gmail-detail' — one or more messages.get calls failed
+ *     - 'gemini-rate'  — Gemini 429/503 (RPM/quota exceeded)
+ *     - 'gemini-parse' — Gemini returned malformed / empty response
+ *   Backend dictates `retryAfterMs` per stage (see CONFIG.sync.retryAfter).
+ *   Frontend shows a small "!" notice and waits the dictated interval.
+ *   When `hasError` is true, last_synced_at is NOT advanced so the failed
+ *   range gets retried on the next sync.
  *
  * Exit-and-come-back resilience:
- *   - If user exits mid-sync, last_synced_at is NOT updated (hasMore was
- *     still true). Next page load re-queries the same date range from
- *     Gmail. Already-processed emails are deduplicated by DB check.
- *     Remaining emails fill in chronologically at the oldest end first.
- *   - No gap because we sync oldest-first each time.
+ *   Same path as the error case — last_synced_at only advances on clean
+ *   completion. Already-processed emails are deduplicated against the DB.
  */
 
 import { handleCors } from '../_shared/cors.ts';
@@ -46,8 +51,11 @@ declare const Deno: {
   serve(handler: (req: Request) => Response | Promise<Response>): void;
 };
 
+type ErrorStage = 'gmail-list' | 'gmail-detail' | 'gemini-rate' | 'gemini-parse';
+type BinKey = 'emergency' | 'info' | 'maybe';
+
 function getHeader(message: { payload?: { headers?: Array<{ name: string; value: string }> } }, name: string): string {
-  return message.payload?.headers?.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ?? '';
+  return message.payload?.headers?.find((header) => header.name.toLowerCase() === name.toLowerCase())?.value ?? '';
 }
 
 function collectAttachments(parts: GmailPart[] | undefined): Array<{ filename: string; mimeType: string; sizeBytes: number; attachmentId?: string }> {
@@ -65,7 +73,7 @@ function decodeBase64Url(data: string): string {
   const standard = data.replace(/-/g, '+').replace(/_/g, '/');
   const padded = standard + '='.repeat((4 - (standard.length % 4)) % 4);
   try {
-    const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
+    const bytes = Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));
     return new TextDecoder('utf-8').decode(bytes);
   } catch {
     return '';
@@ -84,7 +92,7 @@ function stripHtml(html: string): string {
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
+    .replace(/&#(\d+);/g, (_, digits) => String.fromCharCode(parseInt(digits, 10)))
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -94,8 +102,8 @@ function findBodyData(node: { mimeType?: string; body?: { data?: string }; parts
   if (!node) return null;
   if (node.mimeType === mimeType && node.body?.data) return node.body.data;
   if (node.parts) {
-    for (const p of node.parts) {
-      const found = findBodyData(p as never, mimeType);
+    for (const part of node.parts) {
+      const found = findBodyData(part as never, mimeType);
       if (found) return found;
     }
   }
@@ -121,8 +129,8 @@ function extractBody(message: GmailMessageResponse, maxChars: number): string {
 }
 
 function formatDateForGmail(isoDate: string): string {
-  const d = new Date(isoDate);
-  return `${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${String(d.getUTCDate()).padStart(2, '0')}`;
+  const date = new Date(isoDate);
+  return `${date.getUTCFullYear()}/${String(date.getUTCMonth() + 1).padStart(2, '0')}/${String(date.getUTCDate()).padStart(2, '0')}`;
 }
 
 function truncateWords(text: string, maxWords: number): string {
@@ -136,8 +144,14 @@ function truncateWords(text: string, maxWords: number): string {
   return clean.slice(0, maxWords).join(' ');
 }
 
-function gmailPageSize(): number {
-  return 20;
+function retryAfterMsFor(stage: ErrorStage): number {
+  const waits = CONFIG.sync.retryAfter;
+  switch (stage) {
+    case 'gemini-rate':  return waits.geminiRate;
+    case 'gemini-parse': return waits.geminiParse;
+    case 'gmail-list':
+    case 'gmail-detail': return waits.gmailTransient;
+  }
 }
 
 Deno.serve(async (req: Request) => {
@@ -163,8 +177,7 @@ Deno.serve(async (req: Request) => {
 
     const isBaseline = !connection.last_synced_at;
     const maxEmails = isBaseline ? CONFIG.sync.baselineMax : CONFIG.sync.incrementalMax;
-    // category:primary excludes Promotions / Social / Updates / Forums tabs —
-    // prevents trial-expired, low-balance, CI failure, etc. from polluting bins.
+    // category:primary excludes Promotions / Social / Updates / Forums tabs.
     const gmailQuery = isBaseline
       ? 'in:inbox is:unread category:primary'
       : `in:inbox category:primary after:${formatDateForGmail(connection.last_synced_at!)}`;
@@ -174,21 +187,51 @@ Deno.serve(async (req: Request) => {
     // 1. Fetch ALL message IDs (paginate until exhausted or hit cap)
     const allIds: Array<{ id: string; threadId: string }> = [];
     let pageToken: string | undefined;
+    let gmailListFailed = false;
 
-    collectLoop:
     while (true) {
-      const remaining = maxEmails > 0 ? maxEmails - allIds.length : gmailPageSize();
+      const remaining = maxEmails > 0
+        ? maxEmails - allIds.length
+        : CONFIG.fetch.gmailListPageSize;
       if (maxEmails > 0 && remaining <= 0) break;
 
-      const list = await fetchMessageList(accessToken, Math.min(remaining, gmailPageSize()), pageToken, gmailQuery);
-      if (list.messages) {
-        allIds.push(...list.messages.map((m) => ({ id: m.id, threadId: m.threadId })));
+      const listResult = await fetchMessageList(
+        accessToken,
+        Math.min(remaining, CONFIG.fetch.gmailListPageSize),
+        pageToken,
+        gmailQuery,
+      );
+
+      if (!listResult.ok) {
+        logWeird('GMAIL-SYNC', 'Gmail list failed', { status: listResult.status, userId });
+        gmailListFailed = true;
+        break;
       }
-      pageToken = list.nextPageToken;
+
+      if (listResult.data.messages) {
+        allIds.push(...listResult.data.messages.map((message) => ({
+          id: message.id,
+          threadId: message.threadId,
+        })));
+      }
+      pageToken = listResult.data.nextPageToken;
       if (!pageToken) break;
     }
 
-    // hasMore: Gmail has more pages AND we either hit the cap or there's genuinely more
+    if (gmailListFailed) {
+      const errorStage: ErrorStage = 'gmail-list';
+      return jsonResponse({
+        syncedCount: 0,
+        syncedByBin: { emergency: 0, info: 0, maybe: 0 } as Record<BinKey, number>,
+        hasMore: false,
+        hasError: true,
+        errorStage,
+        failedCount: 0,
+        retryAfterMs: retryAfterMsFor(errorStage),
+        isBaseline,
+      });
+    }
+
     let hasMore: boolean;
     if (maxEmails === 0) {
       hasMore = pageToken != null;
@@ -198,37 +241,50 @@ Deno.serve(async (req: Request) => {
 
     if (allIds.length === 0) {
       await updateLastSyncedAt(supabaseUrl, serviceRoleKey, connection.id);
-      return jsonResponse({ syncedCount: 0, hasMore: false, isBaseline });
+      return jsonResponse({
+        syncedCount: 0,
+        syncedByBin: { emergency: 0, info: 0, maybe: 0 } as Record<BinKey, number>,
+        hasMore: false,
+        hasError: false,
+        errorStage: null,
+        failedCount: 0,
+        isBaseline,
+      });
     }
 
     // 2. Dedup against already-synced emails in DB
-    const gmailIds = allIds.map((m) => m.id);
+    const gmailIds = allIds.map((message) => message.id);
     const existingIds = await fetchExistingMessageIds(supabaseUrl, serviceRoleKey, userId, gmailIds);
     const existingSet = new Set(existingIds);
-    const newMessages = allIds.filter((m) => !existingSet.has(m.id));
+    const newMessages = allIds.filter((message) => !existingSet.has(message.id));
 
     if (newMessages.length === 0) {
-      // All fetched IDs already in DB — advance cursor to break stale baseline loop
       await updateLastSyncedAt(supabaseUrl, serviceRoleKey, connection.id);
-      return jsonResponse({ syncedCount: 0, hasMore: false, isBaseline });
+      return jsonResponse({
+        syncedCount: 0,
+        syncedByBin: { emergency: 0, info: 0, maybe: 0 } as Record<BinKey, number>,
+        hasMore: false,
+        hasError: false,
+        errorStage: null,
+        failedCount: 0,
+        isBaseline,
+      });
     }
 
     // 3. Reverse → oldest-first for chronological DB insertion
     newMessages.reverse();
 
     // 4. Process in batches
-    //    - fetchConcurrency: small (≤5) → avoid Gmail 429
-    //    - classifyBatchSize: large → amortize system-prompt cost across emails
-    //      Baseline uses bigger batch (≥50) to seed in 1 Gemini call → 1 RPM.
+    //    - fetchConcurrency: ≤10 → avoid Gmail 429 bursts
+    //    - classifyBatchSize: 50 → amortise system-prompt cost across emails
     let syncedCount = 0;
-    const syncedByBin: Record<'emergency' | 'info' | 'maybe', number> = { emergency: 0, info: 0, maybe: 0 };
+    const syncedByBin: Record<BinKey, number> = { emergency: 0, info: 0, maybe: 0 };
     const fetchConcurrency = CONFIG.fetch.batchSize;
-    const classifyBatchSize = isBaseline
-      ? CONFIG.fetch.baselineClassifyBatchSize
-      : CONFIG.fetch.classifyBatchSize;
+    const classifyBatchSize = CONFIG.fetch.classifyBatchSize;
     const batchDelay = CONFIG.fetch.batchDelayMs;
     let oldestReceivedAt: string | null = null;
-    let rateLimited = false;
+    const failedMessageIds: string[] = [];
+    let geminiErrorStage: 'gemini-rate' | 'gemini-parse' | null = null;
 
     // Rate-limit pacer: track Gemini call timestamps in this invocation.
     // Before each call, if RPM quota would be exceeded within the trailing 60s
@@ -244,87 +300,85 @@ Deno.serve(async (req: Request) => {
         } else {
           const sleepMs = 60_000 - elapsed + 250;
           log('GMAIL-SYNC', 'Pacing for Gemini RPM', { sleepMs, rpmLimit });
-          await new Promise((r) => setTimeout(r, sleepMs));
+          await new Promise((resolve) => setTimeout(resolve, sleepMs));
         }
       }
     }
 
-    for (let i = 0; i < newMessages.length; i += classifyBatchSize) {
-      const classifyBatch = newMessages.slice(i, i + classifyBatchSize);
+    for (let batchStart = 0; batchStart < newMessages.length; batchStart += classifyBatchSize) {
+      const classifyBatch = newMessages.slice(batchStart, batchStart + classifyBatchSize);
 
       // Fetch Gmail details in small concurrent chunks
       const validMessages: GmailMessageResponse[] = [];
-      for (let j = 0; j < classifyBatch.length; j += fetchConcurrency) {
-        const fetchChunk = classifyBatch.slice(j, j + fetchConcurrency);
+      for (let chunkStart = 0; chunkStart < classifyBatch.length; chunkStart += fetchConcurrency) {
+        const fetchChunk = classifyBatch.slice(chunkStart, chunkStart + fetchConcurrency);
         const details = await Promise.all(fetchChunk.map(async ({ id }) => {
-          const { ok, data } = await fetchMessageDetail(accessToken, id);
-          return ok ? data : null;
+          const result = await fetchMessageDetail(accessToken, id);
+          if (!result.ok) {
+            failedMessageIds.push(id);
+            return null;
+          }
+          return result.data;
         }));
-        for (const d of details) {
-          if (d !== null) validMessages.push(d);
+        for (const detail of details) {
+          if (detail !== null) validMessages.push(detail);
         }
-        if (j + fetchConcurrency < classifyBatch.length) {
-          await new Promise((r) => setTimeout(r, batchDelay));
+        if (chunkStart + fetchConcurrency < classifyBatch.length) {
+          await new Promise((resolve) => setTimeout(resolve, batchDelay));
         }
       }
 
       if (validMessages.length === 0) continue;
 
       // 2000 chars ≈ 500 tokens per email; full HTML body stripped to text.
-      // Snippet alone misses booking refs, OTPs buried mid-body, etc.
-      const emailInputs = validMessages.map((m) => ({
-        id: m.id,
-        from: getHeader(m, 'From'),
-        subject: getHeader(m, 'Subject') || '(No subject)',
-        snippet: m.snippet || '',
-        body: extractBody(m, 2000),
+      const emailInputs = validMessages.map((message) => ({
+        id: message.id,
+        from: getHeader(message, 'From'),
+        subject: getHeader(message, 'Subject') || '(No subject)',
+        snippet: message.snippet || '',
+        body: extractBody(message, 2000),
       }));
 
-      // One Gemini call for the whole batch — amortizes system prompt.
+      // One Gemini call for the whole batch — amortises system prompt.
       let classification: Record<string, { bin: string; summary: string; theme: string; fromWho: string; isCustomized: boolean }> = {};
       if (CONFIG.gemini.apiKey) {
         await waitForRpmSlot();
         geminiCallTimestamps.push(Date.now());
         const outcome = await classifyWithGemini(userId, customRules, emailInputs);
         classification = outcome.classifications;
-        if (outcome.rateLimited) {
-          rateLimited = true;
-          // Stop processing further batches this invocation — return what we
-          // have so far. last_synced_at intentionally NOT advanced (hasMore
-          // logic below handles that) so the next sync resumes here.
+
+        if (outcome.errorStage === 'rate') {
+          geminiErrorStage = 'gemini-rate';
           log('GMAIL-SYNC', 'Stopping due to Gemini rate limit', { userId, syncedCount });
+          break;
+        }
+        if (outcome.errorStage === 'parse') {
+          geminiErrorStage = 'gemini-parse';
+          logWeird('GMAIL-SYNC', 'Stopping due to Gemini parse failure', { userId, syncedCount, batchSize: validMessages.length });
           break;
         }
       }
 
-      const classifiedCount = Object.keys(classification).length;
-      if (CONFIG.gemini.apiKey && classifiedCount === 0) {
-        logWeird('GMAIL-SYNC', 'Classification empty — falling back to maybe with Unclassified theme', {
-          userId,
-          batchSize: validMessages.length,
-        });
-      }
-
-      for (const msg of validMessages) {
-        const geminiResult = classification[msg.id];
-        const fromValue = getHeader(msg, 'From');
+      for (const message of validMessages) {
+        const geminiResult = classification[message.id];
+        const fromValue = getHeader(message, 'From');
         const fromParsed = parseFromHeader(fromValue);
-        const subject = getHeader(msg, 'Subject') || '(No subject)';
-        const receivedAt = msg.internalDate ? new Date(Number(msg.internalDate)).toISOString() : null;
-        const labelIds = msg.labelIds ?? [];
+        const subject = getHeader(message, 'Subject') || '(No subject)';
+        const receivedAt = message.internalDate ? new Date(Number(message.internalDate)).toISOString() : null;
+        const labelIds = message.labelIds ?? [];
         const isReadInGmail = !labelIds.includes('UNREAD');
 
-        const rawAttachments = collectAttachments(msg.payload?.parts);
+        const rawAttachments = collectAttachments(message.payload?.parts);
         const attachmentResult = rawAttachments.length > 0 ? processAttachments(rawAttachments, maxAttachmentKb) : null;
 
         await upsertEmail(supabaseUrl, serviceRoleKey, {
           user_id: userId,
-          gmail_message_id: msg.id,
-          thread_id: msg.threadId,
+          gmail_message_id: message.id,
+          thread_id: message.threadId,
           from_name: fromParsed.name,
           from_email: fromParsed.email,
           subject,
-          summary: truncateWords(geminiResult?.summary || msg.snippet || subject, 10),
+          summary: truncateWords(geminiResult?.summary || message.snippet || subject, 10),
           received_at: receivedAt,
           bin: geminiResult?.bin || 'maybe',
           ai_theme: geminiResult?.theme || (CONFIG.gemini.apiKey && !geminiResult ? 'Unclassified' : ''),
@@ -335,35 +389,51 @@ Deno.serve(async (req: Request) => {
           attachment_total_kb: attachmentResult ? Math.round(attachmentResult.totalKb) : 0,
         });
         syncedCount++;
-        const binKey = (geminiResult?.bin || 'maybe') as 'emergency' | 'info' | 'maybe';
+        const binKey = (geminiResult?.bin || 'maybe') as BinKey;
         if (binKey in syncedByBin) syncedByBin[binKey]++;
         if (receivedAt && (!oldestReceivedAt || receivedAt < oldestReceivedAt)) {
           oldestReceivedAt = receivedAt;
         }
       }
 
-      if (i + classifyBatchSize < newMessages.length) {
-        await new Promise((r) => setTimeout(r, batchDelay));
+      if (batchStart + classifyBatchSize < newMessages.length) {
+        await new Promise((resolve) => setTimeout(resolve, batchDelay));
       }
     }
 
-    // 5. Advance last_synced_at
-    //    - If rate-limited, leave cursor untouched and force hasMore=true so
-    //      the frontend retries this same range after waiting.
-    if (rateLimited) {
-      hasMore = true;
-    } else if (!hasMore) {
-      await updateLastSyncedAt(supabaseUrl, serviceRoleKey, connection.id);
-    } else if (isBaseline && oldestReceivedAt) {
-      // Baseline hit the cap — set cursor to 1 day before oldest processed email
-      // so next call catches remaining unread via incremental after: query
-      const d = new Date(oldestReceivedAt);
-      d.setDate(d.getDate() - 1);
-      await updateLastSyncedAt(supabaseUrl, serviceRoleKey, connection.id, d.toISOString());
+    // 5. Resolve final error state
+    let errorStage: ErrorStage | null = null;
+    if (geminiErrorStage) {
+      errorStage = geminiErrorStage;
+    } else if (failedMessageIds.length > 0) {
+      errorStage = 'gmail-detail';
+    }
+    const hasError = errorStage !== null;
+
+    // 6. Advance last_synced_at only on clean completion. Any error keeps the
+    //    cursor where it is so the failed range is retried next sync; dedup
+    //    skips successes.
+    if (!hasError) {
+      if (!hasMore) {
+        await updateLastSyncedAt(supabaseUrl, serviceRoleKey, connection.id);
+      } else if (isBaseline && oldestReceivedAt) {
+        const cursor = new Date(oldestReceivedAt);
+        cursor.setDate(cursor.getDate() - 1);
+        await updateLastSyncedAt(supabaseUrl, serviceRoleKey, connection.id, cursor.toISOString());
+      }
     }
 
-    log('GMAIL-SYNC', 'Complete', { userId, syncedCount, isBaseline, hasMore, rateLimited });
-    return jsonResponse({ syncedCount, syncedByBin, hasMore, isBaseline, rateLimited });
+    log('GMAIL-SYNC', 'Complete', { userId, syncedCount, isBaseline, hasMore, hasError, errorStage });
+    return jsonResponse({
+      syncedCount,
+      syncedByBin,
+      hasMore,
+      hasError,
+      errorStage,
+      failedCount: failedMessageIds.length,
+      retryAfterMs: errorStage ? retryAfterMsFor(errorStage) : undefined,
+      isBaseline,
+    });
   } catch (error) {
     logWeird('GMAIL-SYNC', 'Sync failed', { reason: error instanceof Error ? error.message : String(error) });
     return jsonResponse({ error: error instanceof Error ? error.message : 'sync_failed' }, 500);

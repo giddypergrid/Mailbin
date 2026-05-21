@@ -159,7 +159,7 @@ Hard constraints:
 
 export type ClassifyOutcome = {
   classifications: Record<string, ClassifiedEmail>;
-  rateLimited: boolean;
+  errorStage: 'rate' | 'parse' | null;
 };
 
 export async function classifyWithGemini(
@@ -178,7 +178,7 @@ export async function classifyWithGemini(
 
   if (!apiKey) {
     log('GEMINI', 'No API key configured — skipping AI classification', { userId });
-    return { classifications: {}, rateLimited: false };
+    return { classifications: {}, errorStage: null };
   }
 
   const personalContext = customRules.length > 0
@@ -245,7 +245,7 @@ Return ONLY a JSON object — no prose, no markdown fences. Example:
     // 503 from Gemini often indicates short-term overload — treat same as rate limit so caller can back off.
     if (response.status === 429 || response.status === 503) {
       logWeird('GEMINI', 'Rate limited', { status: response.status, error: data.error?.message ?? '' });
-      return { classifications: {}, rateLimited: true };
+      return { classifications: {}, errorStage: 'rate' };
     }
 
     if (!response.ok || data.error) {
@@ -253,7 +253,7 @@ Return ONLY a JSON object — no prose, no markdown fences. Example:
         status: response.status,
         error: data.error?.message ?? 'unknown',
       });
-      return { classifications: {}, rateLimited: false };
+      return { classifications: {}, errorStage: 'parse' };
     }
 
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -262,13 +262,13 @@ Return ONLY a JSON object — no prose, no markdown fences. Example:
 
     if (!text) {
       logWeird('GEMINI', 'Empty response', { finishReason: data.candidates?.[0]?.finishReason });
-      return { classifications: {}, rateLimited: false };
+      return { classifications: {}, errorStage: 'parse' };
     }
 
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       logWeird('GEMINI', 'No JSON in response', { text: text.slice(0, 200) });
-      return { classifications: {}, rateLimited: false };
+      return { classifications: {}, errorStage: 'parse' };
     }
 
     const raw = JSON.parse(jsonMatch[0]) as Record<string, string | { bin?: string; summary?: string; theme?: string; fromWho?: string; isCustomized?: boolean }>;
@@ -299,11 +299,11 @@ Return ONLY a JSON object — no prose, no markdown fences. Example:
       sampleId: Object.keys(result)[0],
       sampleResult: result[Object.keys(result)[0]],
     });
-    return { classifications: result, rateLimited: false };
+    return { classifications: result, errorStage: null };
   } catch (error) {
     logWeird('GEMINI', 'Request failed', {
       reason: error instanceof Error ? error.message : String(error),
     });
-    return { classifications: {}, rateLimited: false };
+    return { classifications: {}, errorStage: 'parse' };
   }
 }

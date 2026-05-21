@@ -1,62 +1,44 @@
 import { type GmailListResponse, type GmailMessageResponse, type GmailConnection } from './types.ts';
 import { requireEnv } from './http.ts';
-import { logWeird } from './logger.ts';
 import { saveAccessToken } from './db.ts';
 import { CONFIG } from './config.ts';
 
-export async function fetchMessageList(accessToken: string, limit: number, pageToken?: string, query?: string): Promise<GmailListResponse> {
+export type ListResult = { ok: boolean; status: number; data: GmailListResponse };
+export type DetailResult = { ok: boolean; status: number; data: GmailMessageResponse };
+
+// Single-attempt fetch. Caller surfaces failure to frontend via errorStage;
+// frontend handles wait + retry. No internal retry loop — diagnose-fast wins
+// over silent re-tries that block the response for many seconds.
+export async function fetchMessageList(
+  accessToken: string,
+  limit: number,
+  pageToken?: string,
+  query?: string,
+): Promise<ListResult> {
   const listUrl = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages');
   listUrl.searchParams.set('maxResults', String(limit));
   listUrl.searchParams.set('q', query ?? 'in:inbox is:unread category:primary');
   if (pageToken) listUrl.searchParams.set('pageToken', pageToken);
 
-  const maxRetries = CONFIG.sync.maxRetries;
-  const retryDelay = CONFIG.sync.retryDelayMs;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const response = await fetch(listUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    const json = await response.json() as GmailListResponse;
-
-    if (response.ok) return json;
-
-    if ((response.status === 429 || response.status === 503) && attempt < maxRetries) {
-      logWeird('GMAIL-CLIENT', 'Rate limited on list', { status: response.status, attempt, retryDelayMs: retryDelay });
-      await new Promise((r) => setTimeout(r, retryDelay));
-      continue;
-    }
-
-    throw new Error('gmail_message_list_failed');
-  }
-
-  throw new Error('gmail_message_list_failed');
+  const response = await fetch(listUrl, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const data = await response.json() as GmailListResponse;
+  return { ok: response.ok, status: response.status, data };
 }
 
-export async function fetchMessageDetail(accessToken: string, messageId: string): Promise<{ ok: boolean; status: number; data: GmailMessageResponse }> {
-  const maxRetries = CONFIG.sync.maxRetries;
-  const retryDelay = CONFIG.sync.retryDelayMs;
+export async function fetchMessageDetail(
+  accessToken: string,
+  messageId: string,
+): Promise<DetailResult> {
+  const messageUrl = new URL(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}`);
+  messageUrl.searchParams.set('format', 'full');
 
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const messageUrl = new URL(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}`);
-    messageUrl.searchParams.set('format', 'full');
-
-    const response = await fetch(messageUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    const data = await response.json() as GmailMessageResponse;
-
-    if (response.ok || (response.status !== 429 && response.status !== 503)) {
-      return { ok: response.ok, status: response.status, data };
-    }
-
-    if (attempt < maxRetries) {
-      logWeird('GMAIL-CLIENT', 'Rate limited on detail', { messageId: messageId.slice(0, 8), attempt, retryDelayMs: retryDelay });
-      await new Promise((r) => setTimeout(r, retryDelay));
-    }
-  }
-
-  return { ok: false, status: 429, data: {} as GmailMessageResponse };
+  const response = await fetch(messageUrl, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const data = await response.json() as GmailMessageResponse;
+  return { ok: response.ok, status: response.status, data };
 }
 
 export async function refreshAccessToken(clientId: string, clientSecret: string, refreshToken: string): Promise<{ accessToken: string; expiresAt: string | null } | { error: string }> {
