@@ -9,7 +9,9 @@ declare const Deno: {
 const gmailScopes = [
   'openid',
   'email',
-  'https://www.googleapis.com/auth/gmail.readonly',
+  // gmail.modify is a superset of readonly + lets us mark messages read.
+  // readonly returns 403 on messages.modify, so the toggle was silently dead.
+  'https://www.googleapis.com/auth/gmail.modify',
 ];
 
 function readCookie(req: Request, name: string): string | null {
