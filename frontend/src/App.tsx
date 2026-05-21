@@ -650,7 +650,7 @@ export function App() {
               key={index}
               rows={2}
               className="board-rule-input"
-              placeholder={`Rule ${index + 1} — e.g. "LinkedIn → maybe"`}
+              placeholder={`Rule ${index + 1}`}
               value={coreMemory?.customRules[index] ?? ''}
               maxLength={50}
               onChange={(e) => setCoreMemory((prev) => {
@@ -785,10 +785,31 @@ export function App() {
               <div className="onboarding-status-pill-demo is-ready">Server <Check size={12} /></div>
               <div className="onboarding-status-pill-demo is-connected">Gmail <Check size={12} /></div>
               <div className="onboarding-status-icon-demo"><HelpCircle size={36} /></div>
-              <div className="onboarding-status-icon-demo"><Settings size={36} /></div>
+              <div className="onboarding-status-icon-demo onboarding-status-icon-target">
+                <Settings size={36} />
+                <span className="onboarding-pointer-hint">
+                  <Pointer size={20} />
+                  <span>try them out!</span>
+                </span>
+              </div>
             </div>
+
+            <div className="onboarding-settings-preview" aria-hidden="true">
+              <div className="onboarding-settings-tag">Instructions</div>
+              <div className="onboarding-settings-rules">
+                <div className="onboarding-settings-rule">Rule 1</div>
+                <div className="onboarding-settings-rule">Rule 2</div>
+                <div className="onboarding-settings-rule">Rule 3</div>
+              </div>
+              <div className="onboarding-settings-tag">Preferences</div>
+              <div className="onboarding-settings-pref">
+                <span className="onboarding-settings-checkbox" />
+                <span>Mark Gmail mails as read on slide</span>
+              </div>
+            </div>
+
             <p className="onboarding-status-text">
-              Top right corner — tap <HelpCircle size={13} style={{ display: 'inline', verticalAlign: 'middle' }} /> to reopen this guide, <Settings size={13} style={{ display: 'inline', verticalAlign: 'middle' }} /> for your instructions.
+              Top right corner — <HelpCircle size={13} style={{ display: 'inline', verticalAlign: 'middle' }} /> reopens this guide, <Settings size={13} style={{ display: 'inline', verticalAlign: 'middle' }} /> opens your instructions.
             </p>
             <p className="onboarding-dev-note">
               Still under development — write to sunziyuan000@gmail.com!

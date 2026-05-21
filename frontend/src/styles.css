@@ -6,6 +6,7 @@
 
 * {
   box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
@@ -619,18 +620,18 @@ h1 {
 
 .preferences-board {
   width: min(680px, 80vw);
-  height: min(700px, 80vh);
-  padding: 24px;
+  max-height: min(700px, 90vh);
+  padding: 20px 20px 18px;
   background: #faf6ed;
   border: 3px solid #e8dcc8;
   border-radius: 16px;
   box-shadow: 0 24px 60px rgba(30, 20, 14, 0.22);
-  overflow-y: auto;
+  overflow: hidden;
   animation: pop-in 220ms ease;
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
 }
 
 .board-close {
@@ -817,14 +818,15 @@ h1 {
 }
 
 .onboarding-board {
-  gap: 18px;
+  gap: 12px;
   align-items: center;
   text-align: center;
 }
 
 .onboarding-title {
-  margin: 8px 0 0;
-  font-size: clamp(1.6rem, 5vw, 2.2rem);
+  margin: 4px 0 0;
+  padding: 0 52px;
+  font-size: clamp(1.4rem, 4.5vw, 1.9rem);
   font-weight: 900;
   letter-spacing: -0.04em;
   color: #241c18;
@@ -839,23 +841,23 @@ h1 {
 
 .onboarding-bins {
   display: grid;
-  gap: 14px;
+  gap: 8px;
   width: 100%;
 }
 
 .onboarding-bin-row {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 12px 14px;
-  border-radius: 14px;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 12px;
   border: 1px solid #d8d0c0;
   text-align: left;
 }
 
 .onboarding-bin-img {
-  width: 56px;
-  height: 56px;
+  width: 44px;
+  height: 44px;
   object-fit: contain;
   flex-shrink: 0;
 }
@@ -896,8 +898,8 @@ h1 {
 }
 
 .onboarding-sleepy-img {
-  width: 56px;
-  height: 56px;
+  width: 40px;
+  height: 40px;
   object-fit: contain;
 }
 
@@ -1101,6 +1103,86 @@ h1 {
   font-weight: 500;
   color: #8b7a60;
   line-height: 1.5;
+}
+
+.onboarding-status-icon-target {
+  position: relative;
+}
+
+.onboarding-pointer-hint {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #241c18;
+  color: #fffdf8;
+  font-size: 0.72rem;
+  font-weight: 800;
+  white-space: nowrap;
+  box-shadow: 0 4px 10px rgba(30, 20, 14, 0.2);
+}
+
+.onboarding-settings-preview {
+  width: 100%;
+  max-width: 280px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fffdf8;
+  border: 1.5px solid #d8d0c0;
+  box-shadow: 0 3px 12px rgba(30, 20, 14, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+
+.onboarding-settings-tag {
+  align-self: flex-start;
+  background: #d4c5a9;
+  color: #333;
+  padding: 2px 10px 2px 8px;
+  font-weight: 800;
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 0 100%);
+}
+
+.onboarding-settings-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.onboarding-settings-rule {
+  font-size: 0.72rem;
+  color: #b8a88a;
+  background: #f5f0e8;
+  border: 1px solid #e0d8c8;
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.onboarding-settings-pref {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: #4b3426;
+}
+
+.onboarding-settings-checkbox {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid #8b7a60;
+  border-radius: 3px;
+  background: #fffdf8;
+  flex-shrink: 0;
 }
 
 .onboarding-nav {
