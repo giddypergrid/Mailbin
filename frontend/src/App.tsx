@@ -371,9 +371,7 @@ export function App() {
   // sleepy/awake correctly without requiring the user to enter each bin first.
   useEffect(() => {
     if (!isGmailConnected || isSyncing) return;
-    bins.forEach((bin) => {
-      if (binStatuses[bin.id] === 'idle') gmailFetch(bin.id);
-    });
+    bins.forEach((bin) => gmailFetch(bin.id));
   }, [isGmailConnected, isSyncing, gmailFetch]);
 
   const loadMoreGmail = useCallback(() => {

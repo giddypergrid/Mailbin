@@ -255,7 +255,7 @@ h1 {
 }
 
 .bin-maybe.is-sleepy {
-  width: min(16vw, 122px);
+  width: min(22vw, 170px);
 }
 
 .bin-button span {
@@ -1286,7 +1286,7 @@ h1 {
   }
 
   .bin-maybe.is-sleepy {
-    width: 34%;
+    width: 50%;
   }
 
   .folder-bin-image {
