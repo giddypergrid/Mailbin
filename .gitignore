@@ -24,3 +24,6 @@ frontend/android/
 
 # Stray test file
 test.ts
+
+# Landing website (own git repo, deployed separately to Vercel)
+web/

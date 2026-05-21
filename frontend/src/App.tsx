@@ -21,6 +21,12 @@ const binEmptyMessages: Record<BinId, string> = {
   maybe: 'Nothing to maybe about. Pure peace.',
 };
 
+const binSleepySpeech: Record<BinId, string> = {
+  emergency: 'Zzz... no panic mail.',
+  info: 'Zzz... nothing tiny and useful.',
+  maybe: 'Zzz... nothing to ignore.',
+};
+
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabaseFunctionsUrl = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
@@ -79,7 +85,7 @@ export function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState(0);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
-  const [newEmailCount, setNewEmailCount] = useState(0);
+  const [newEmailCountByBin, setNewEmailCountByBin] = useState<Record<BinId, number>>({ emergency: 0, info: 0, maybe: 0 });
   const [floatingMessage, setFloatingMessage] = useState<string | null>(null);
   const [isConnectHighlighted, setIsConnectHighlighted] = useState(false);
   const [coreMemory, setCoreMemory] = useState<CoreMemory | null>(null);
@@ -195,6 +201,10 @@ export function App() {
         processOAuthParams(url.searchParams);
       }
     });
+    // Reset spinner if user closes the in-app browser without completing OAuth
+    Browser.addListener('browserFinished', () => {
+      setIsConnectingGmail(false);
+    });
   }, []);
 
   useEffect(() => {
@@ -233,7 +243,7 @@ export function App() {
     setIsSyncing(true);
     setSyncProgress(0);
     setSyncMessage(null);
-    setNewEmailCount(0);
+    setNewEmailCountByBin({ emergency: 0, info: 0, maybe: 0 });
     // Cap how many times we ride out a rate-limit cycle before giving up so
     // the user is never stuck spinning forever.
     let rateLimitRetries = 0;
@@ -242,10 +252,17 @@ export function App() {
       let hasMore = true;
       while (hasMore) {
         const response = await fetch(`${supabaseFunctionsUrl}/gmail-sync`, { headers: await getAuthHeaders() });
-        const data = await response.json() as { syncedCount?: number; hasMore?: boolean; isBaseline?: boolean; rateLimited?: boolean };
+        const data = await response.json() as { syncedCount?: number; syncedByBin?: Record<BinId, number>; hasMore?: boolean; isBaseline?: boolean; rateLimited?: boolean };
         const newlySynced = data.syncedCount ?? 0;
         setSyncProgress((prev) => prev + newlySynced);
-        if (newlySynced > 0) setNewEmailCount((prev) => prev + newlySynced);
+        if (newlySynced > 0) {
+          const syncedByBin = data.syncedByBin ?? { emergency: 0, info: 0, maybe: 0 };
+          setNewEmailCountByBin((prev) => ({
+            emergency: prev.emergency + (syncedByBin.emergency ?? 0),
+            info: prev.info + (syncedByBin.info ?? 0),
+            maybe: prev.maybe + (syncedByBin.maybe ?? 0),
+          }));
+        }
 
         if (data.rateLimited) {
           if (rateLimitRetries >= maxRateLimitRetries) {
@@ -316,6 +333,15 @@ export function App() {
     if (!selectedBin || !isGmailConnected) return;
     gmailFetch(selectedBin);
   }, [selectedBin, isGmailConnected, gmailFetch]);
+
+  // Populate all bin statuses after sync finishes so the home screen reflects
+  // sleepy/awake correctly without requiring the user to enter each bin first.
+  useEffect(() => {
+    if (!isGmailConnected || isSyncing) return;
+    bins.forEach((bin) => {
+      if (binStatuses[bin.id] === 'idle') gmailFetch(bin.id);
+    });
+  }, [isGmailConnected, isSyncing, gmailFetch]);
 
   const loadMoreGmail = useCallback(() => {
     if (!selectedBin) return;
@@ -393,6 +419,18 @@ export function App() {
     : getMailsForBin(selectedBin);
   const activeMails = sourceMails.filter((mail) => !dismissedMailIds.includes(mail.id));
   const currentBinStatus = selectedBin ? binStatuses[selectedBin] : 'idle';
+  const newEmailCount = selectedBin ? newEmailCountByBin[selectedBin] : 0;
+
+  // When user swipes the last email locally, flip bin status to 'empty' so the
+  // home screen reflects sleepy immediately. Without this, only a server-fetch
+  // would update binStatuses, and re-entering the bin would show stale emails.
+  useEffect(() => {
+    if (!selectedBin) return;
+    if (binStatuses[selectedBin] === 'loading') return;
+    if (activeMails.length === 0 && binStatuses[selectedBin] !== 'empty') {
+      setBinStatuses((prev) => ({ ...prev, [selectedBin]: 'empty' }));
+    }
+  }, [selectedBin, activeMails.length, binStatuses]);
 
   function getGmailStatusState(): 'checking' | 'connected' | 'error' | 'idle' {
     if (isConnectingGmail) return 'checking';
@@ -403,10 +441,14 @@ export function App() {
 
   const gmailStatusState = getGmailStatusState();
 
+  function shakeConnectButton() {
+    setIsConnectHighlighted(true);
+    setTimeout(() => setIsConnectHighlighted(false), 600);
+  }
+
   function handleBinClick(id: BinId) {
     if (!isGmailConnected) {
-      setIsConnectHighlighted(true);
-      setTimeout(() => setIsConnectHighlighted(false), 600);
+      shakeConnectButton();
       return;
     }
     setPressedBin(id);
@@ -650,7 +692,7 @@ export function App() {
               key={index}
               rows={2}
               className="board-rule-input"
-              placeholder={`Rule ${index + 1} — e.g. "LinkedIn → maybe"`}
+              placeholder={`Rule ${index + 1}`}
               value={coreMemory?.customRules[index] ?? ''}
               maxLength={50}
               onChange={(e) => setCoreMemory((prev) => {
@@ -713,7 +755,6 @@ export function App() {
         {onboardingStep === 1 ? (
           <>
             <h2 className="onboarding-title">Welcome to Mailbin</h2>
-            <p className="onboarding-subtitle">You have three bins:</p>
             <div className="onboarding-bins">
               {bins.map((bin) => (
                 <div className="onboarding-bin-row" key={bin.id}>
@@ -785,10 +826,31 @@ export function App() {
               <div className="onboarding-status-pill-demo is-ready">Server <Check size={12} /></div>
               <div className="onboarding-status-pill-demo is-connected">Gmail <Check size={12} /></div>
               <div className="onboarding-status-icon-demo"><HelpCircle size={36} /></div>
-              <div className="onboarding-status-icon-demo"><Settings size={36} /></div>
+              <div className="onboarding-status-icon-demo onboarding-status-icon-target">
+                <Settings size={36} />
+                <span className="onboarding-pointer-hint">
+                  <Pointer size={20} />
+                  <span>try them out!</span>
+                </span>
+              </div>
             </div>
+
+            <div className="onboarding-settings-preview" aria-hidden="true">
+              <div className="onboarding-settings-tag">Instructions</div>
+              <div className="onboarding-settings-rules">
+                <div className="onboarding-settings-rule">Rule 1</div>
+                <div className="onboarding-settings-rule">Rule 2</div>
+                <div className="onboarding-settings-rule">Rule 3</div>
+              </div>
+              <div className="onboarding-settings-tag">Preferences</div>
+              <div className="onboarding-settings-pref">
+                <span className="onboarding-settings-checkbox" />
+                <span>Mark Gmail mails as read on slide</span>
+              </div>
+            </div>
+
             <p className="onboarding-status-text">
-              Top right corner — tap <HelpCircle size={13} style={{ display: 'inline', verticalAlign: 'middle' }} /> to reopen this guide, <Settings size={13} style={{ display: 'inline', verticalAlign: 'middle' }} /> for your instructions.
+              Top right corner — <HelpCircle size={13} style={{ display: 'inline', verticalAlign: 'middle' }} /> reopens this guide, <Settings size={13} style={{ display: 'inline', verticalAlign: 'middle' }} /> opens your instructions.
             </p>
             <p className="onboarding-dev-note">
               Still under development — write to sunziyuan000@gmail.com!
@@ -828,54 +890,50 @@ export function App() {
             ← Back to bins
           </button>
 
-          <section className="folder-hero">
-            <img className="folder-bin-image" src={activeBin.image} alt={`${activeBin.title} bin`} />
-            <div className="speech-bubble" style={{ '--accent': activeBin.accent } as CSSProperties}>
-              {binSpeech[activeBin.id]}
-            </div>
-          </section>
+          {(() => {
+            const isBinSleepy = activeMails.length === 0;
+            return (
+              <section className="folder-hero">
+                <img className="folder-bin-image" src={isBinSleepy ? activeBin.sleepyImage : activeBin.image} alt={`${activeBin.title} bin`} />
+                <div className="speech-bubble" style={{ '--accent': activeBin.accent } as CSSProperties}>
+                  {isBinSleepy ? binSleepySpeech[activeBin.id] : binSpeech[activeBin.id]}
+                </div>
+              </section>
+            );
+          })()}
 
-          <button
-            className="new-emails-button"
-            type="button"
-            onClick={() => {
-              mailListRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-              if (newEmailCount > 0 && selectedBin) {
-                setNewEmailCount(0);
-                gmailFetch(selectedBin);
-              }
-            }}
-          >
-            {isSyncing ? (
-              <>
-                <RefreshCw size={14} className="sync-spinner" />
-                Syncing...
-              </>
-            ) : newEmailCount > 0 ? (
-              <>
-                <ArrowUp size={14} />
-                New Message
-              </>
-            ) : (
-              <>
-                <ArrowUp size={14} />
-                Back to top
-              </>
-            )}
-          </button>
+          {(isSyncing || newEmailCount > 0 || activeMails.length > 0) ? (
+            <button
+              className="new-emails-button"
+              type="button"
+              onClick={() => {
+                mailListRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+                if (newEmailCount > 0 && selectedBin) {
+                  setNewEmailCountByBin((prev) => ({ ...prev, [selectedBin]: 0 }));
+                  gmailFetch(selectedBin);
+                }
+              }}
+            >
+              {isSyncing ? (
+                <>
+                  <RefreshCw size={14} className="sync-spinner" />
+                  Syncing...
+                </>
+              ) : newEmailCount > 0 ? (
+                <>
+                  <ArrowUp size={14} />
+                  New Message
+                </>
+              ) : (
+                <>
+                  <ArrowUp size={14} />
+                  Back to top
+                </>
+              )}
+            </button>
+          ) : null}
 
           <section className="mail-list" aria-label={`${activeBin.title} mail list`} ref={mailListRef}>
-            {currentBinStatus === 'empty' ? (
-              <div className="empty-state" onClick={() => { setFloatingMessage('No unread mail — bin is sleeping 😴'); setTimeout(() => setFloatingMessage(null), 1500); }}>
-                <img className="empty-state-image" src={activeBin.sleepyImage} alt={`${activeBin.title} bin sleeping`} />
-                {floatingMessage ? (
-                  <div className="floating-toast">{floatingMessage}</div>
-                ) : null}
-                <p className="empty-state-message" style={{ '--accent': activeBin.accent } as CSSProperties}>
-                  {binEmptyMessages[activeBin.id]}
-                </p>
-              </div>
-            ) : null}
             {currentBinStatus === 'error' ? (
               <p className="mail-list-status is-error">Could not load emails.</p>
             ) : null}
@@ -973,10 +1031,10 @@ export function App() {
                 {gmailStatusState === 'error' ? <X size={12} /> : null}
               </span>
             </div>
-            <button className="settings-button" type="button" aria-label="Guide" onClick={() => setOnboardingStep(1)}>
+            <button className="settings-button" type="button" aria-label="Guide" onClick={() => { if (!isGmailConnected) { shakeConnectButton(); return; } setOnboardingStep(1); }}>
               <HelpCircle size={36} />
             </button>
-            <button className="settings-button" type="button" aria-label="Settings" onClick={() => setShowPreferences(true)}>
+            <button className="settings-button" type="button" aria-label="Settings" onClick={() => { if (!isGmailConnected) { shakeConnectButton(); return; } setShowPreferences(true); }}>
               <Settings size={36} />
             </button>
           </div>
@@ -1002,17 +1060,20 @@ export function App() {
           {floatingMessage ? (
             <div className="floating-toast">{floatingMessage}</div>
           ) : null}
-          {bins.map((bin) => (
-            <button
-              className={`bin-button bin-${bin.id}${pressedBin === bin.id ? ' is-selected' : ''}`}
-              key={bin.id}
-              onClick={() => handleBinClick(bin.id)}
-              style={{ '--accent': bin.accent } as CSSProperties}
-              type="button"
-            >
-              <img src={bin.image} alt={`${bin.title} bin`} />
-            </button>
-          ))}
+          {bins.map((bin) => {
+            const isBinSleepy = binStatuses[bin.id] === 'empty';
+            return (
+              <button
+                className={`bin-button bin-${bin.id}${pressedBin === bin.id ? ' is-selected' : ''}${isBinSleepy ? ' is-sleepy' : ''}`}
+                key={bin.id}
+                onClick={() => handleBinClick(bin.id)}
+                style={{ '--accent': bin.accent } as CSSProperties}
+                type="button"
+              >
+                <img src={isBinSleepy ? bin.sleepyImage : bin.image} alt={`${bin.title} bin`} />
+              </button>
+            );
+          })}
         </section>
       </main>
     </>

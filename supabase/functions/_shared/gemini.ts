@@ -35,7 +35,12 @@ Past tense alone doesn't disqualify — test the action, not the verb.
 Who sent this, and what is their relationship to the user?
 - HUMAN waiting on the user (boss, recruiter, client, professor, family) → emergency-eligible.
 - SYSTEM handing the user a portable value (code, ref, tracking, total) → INFO.
-- SYSTEM informing or warning (alert, digest, status, marketing nudge, security activity report) → almost never emergency; needs Filter A=yes AND Filter C=real harm.
+- SYSTEM informing or warning → MAYBE by default. Burden of proof is on the email to escape.
+  To promote to emergency it must reference SPECIFIC evidence of the user's active engagement:
+    * a specific recent purchase / order ("your order #12345 was charged $47.32"),
+    * a specific active service the user clearly uses (named account, specific resource ID, specific bill),
+    * a specific verifiable account state ("3 failed logins from IP X at 02:14").
+  Generic urgency without a specific tied object → MAYBE, even if words like URGENT/CRITICAL/ACT NOW appear.
 - SYSTEM celebrating/nudging ("welcome", "we miss you", milestone) → maybe.
 
 ## Filter C — Consequence at 24h delay
@@ -68,6 +73,8 @@ For INFO the summary IS the product. Use these templates verbatim with the extra
 - Receipt:   "{Service} total: \${AMOUNT}"           e.g. "Amazon total: \$42.50"
 - Meeting:   "{Service} ID: {ID}"                   e.g. "Zoom ID: 821-4920-3344"
 
+NEVER produce a summary that is only a dollar amount, only a code, or only a number. The {Service} / {Merchant} name MUST lead. "$25" alone is invalid — "Uber Eats voucher: $25" is valid.
+
 If multiple values exist, pick the most actionable.
 If no concrete value can be extracted verbatim → this is NOT info. Re-run Filters A and C.
 
@@ -93,8 +100,9 @@ MAYBE:
 1. Login alert on YOUR usual device / OS / location → maybe.
    Login alert from FOREIGN country / unknown device → emergency (security harm + action).
 
-2. Trial expired, no consequence → maybe (Filter A = no action helps).
-   Trial expiring Friday, "all data deleted after" → emergency (real harm, action exists).
+2. Trial / subscription expired with no data-loss deadline OR deadline >72h away → MAYBE (slow burn).
+   "Data deleted in 30 days" / "expires in 3 days" / "soon" → MAYBE — not 24h.
+   "All data deleted in 24h unless you act" with specific deletion timestamp → emergency.
 
 3. Booking / order confirmation WITH a ref number → info (use Booking template).
    Booking confirmation WITHOUT any extractable ref → maybe.
@@ -105,6 +113,10 @@ MAYBE:
 5. CI / build / deploy failed on a feature branch → maybe (dev noise).
    "Production deploy failed, customers affected" → emergency IF user's personal context flags prod.
 
+6. Voucher / credit ALREADY issued to user ("your $25 credit, code UE8X2K") → INFO.
+   "Sign up and get $25" / "Register and earn" / "Click to claim" → MAYBE (promo bait, no value held yet).
+   Test: does a redeemable code or balance exist in the email body right now? If not → MAYBE.
+
 # COMMON TRAPS — DO NOT FALL FOR THESE
 
 - Scary capitalized words ("URGENT", "ALERT", "CRITICAL", "ACTION REQUIRED") do not bypass the filters.
@@ -113,6 +125,18 @@ MAYBE:
 - Subscription deactivated due to inactivity → maybe (user already disengaged; nothing to save).
 - Low-balance / running-low warnings WITHOUT a hard stop time → maybe.
 - Trial / plan expired with no data loss or follow-up obligation → maybe.
+
+# DISGUISED URGENCY — HOLLOW-CLICK PATTERNS (all MAYBE)
+
+These look like Filter A=yes but the "action" is empty on click-through:
+- Vague CTAs: "Review your account", "Check your status", "See what's new", "Get started", "Learn more", "View details" — no specific object.
+- "Action required" / "Account needs attention" with no specific issue named.
+- "Last chance", "Don't miss out", "Special offer", "Just for you", "Limited time" — marketing dressed as urgency.
+- "We've updated our terms / privacy policy" — never urgent.
+- Trial / subscription / data-deletion warnings for services the user shows no active engagement with.
+- Security advisories that name no specific account event (generic "stay safe online" tips).
+
+The test: can you name the SPECIFIC OBJECT the action operates on (amount, date, ticket, person, ID)? If not → MAYBE.
 
 # OUTPUT FIELDS (per email)
 
