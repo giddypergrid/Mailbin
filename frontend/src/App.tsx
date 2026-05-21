@@ -925,7 +925,7 @@ export function App() {
           </button>
 
           {(() => {
-            const isBinSleepy = activeMails.length === 0;
+            const isBinSleepy = activeMails.length === 0 && !isSyncing;
             return (
               <section className="folder-hero">
                 <img className="folder-bin-image" src={isBinSleepy ? activeBin.sleepyImage : activeBin.image} alt={`${activeBin.title} bin`} />
