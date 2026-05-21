@@ -15,13 +15,15 @@ if (-not $lanIp) {
 
 Write-Host "Detected LAN IP: $lanIp" -ForegroundColor Cyan
 
-# Inject IP into capacitor.config.ts for live reload on emulator/device
+# Inject IP into capacitor.config.ts for live reload on emulator/device.
+# Save original content first so we can restore it on exit — keeps the
+# checked-in file clean (no leftover LAN-IP diffs after every dev session).
 $configPath = "$PSScriptRoot/frontend/capacitor.config.ts"
-$config = Get-Content $configPath -Raw
-$updated = $config -replace "server:\s*\{[^}]*\}", "server: { androidScheme: 'https', url: 'http://$lanIp`:5174', cleartext: true }"
+$originalConfig = Get-Content $configPath -Raw
+$updated = $originalConfig -replace "server:\s*\{[^}]*\}", "server: { androidScheme: 'https', url: 'http://$lanIp`:5174', cleartext: true }"
 Set-Content $configPath $updated -Encoding utf8
 
-Write-Host "Injected server.url http://$lanIp`:5174 into capacitor.config.ts" -ForegroundColor Cyan
+Write-Host "Injected server.url http://$lanIp`:5174 into capacitor.config.ts (will revert on exit)" -ForegroundColor Cyan
 
 Push-Location -LiteralPath "$PSScriptRoot/frontend"
 try {
@@ -68,4 +70,10 @@ try {
   npx vite --host 0.0.0.0 --port 5174 --strictPort
 } finally {
   Pop-Location  # restore original directory even on Ctrl+C
+  # Restore capacitor.config.ts to its checked-in state so the working
+  # copy stays clean. Runs even if vite/cap open were killed via Ctrl+C.
+  if ($originalConfig) {
+    Set-Content $configPath $originalConfig -Encoding utf8 -NoNewline
+    Write-Host "Reverted capacitor.config.ts to committed state" -ForegroundColor Cyan
+  }
 }

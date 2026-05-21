@@ -43,23 +43,40 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ processed: 0, message: 'No unprocessed feedback' });
     }
 
+    // Join feedback to gmail_emails so Gemini sees sender/subject/bin instead of
+    // opaque message IDs. Without this, generated rules are too vague to bite.
+    const messageIds = feedbackList.map((f) => `"${f.gmail_message_id}"`).join(',');
+    const emailsResponse = await fetch(
+      `${supabaseUrl}/rest/v1/gmail_emails?select=gmail_message_id,from_name,from_email,subject,bin,summary&user_id=eq.${userId}&gmail_message_id=in.(${messageIds})`,
+      { headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` } },
+    );
+    const emails = emailsResponse.ok ? await emailsResponse.json() as Array<{
+      gmail_message_id: string; from_name: string; from_email: string; subject: string; bin: string; summary: string;
+    }> : [];
+    const emailById = new Map(emails.map((e) => [e.gmail_message_id, e]));
+
     const existingRules = coreMemory.custom_rules ?? [];
 
-    const feedbackLines = feedbackList.map((f) =>
-      `[${f.created_at?.slice(0, 10) ?? '?'}] Message: ${f.gmail_message_id.slice(0, 8)}... Feedback: "${f.feedback_text}"`
-    ).join('\n');
+    const feedbackLines = feedbackList.map((f) => {
+      const e = emailById.get(f.gmail_message_id);
+      if (!e) return `- Feedback: "${f.feedback_text}" (email not found)`;
+      const sender = e.from_name ? `${e.from_name} <${e.from_email}>` : e.from_email;
+      return `- From: ${sender}\n  Subject: ${e.subject}\n  Originally classified as: ${e.bin}\n  User said: "${f.feedback_text}"`;
+    }).join('\n\n');
 
     const prompt = `You are augmenting a user's email classification memory.
-Current user rules (each rule is a "keyword/phrase → bin" mapping):
+
+Current user rules (each rule maps a sender/keyword pattern to a bin):
 ${existingRules.map((r: string) => `- ${r}`).join('\n') || '(none)'}
 
-Recent feedback the user gave on specific emails (this tells you what they WANT):
+Recent feedback on specific emails the user received:
 ${feedbackLines}
 
-Task: Rewrite the user rules to incorporate their feedback preferences.
-- Only adjust classification logic and summary style preferences.
-- Preserve the original intent where feedback doesn't contradict it.
-- Neutralize any bizarre, contradictory, or nonsensical feedback entries.
+Task: Rewrite the user rules to incorporate the feedback.
+- Generalize from the specific email (sender domain, subject keyword) — do NOT write rules tied to a single subject line.
+- Each rule should be a clear pattern → bin mapping (emergency / info / maybe).
+- Preserve existing rules where feedback doesn't contradict them.
+- Drop bizarre, contradictory, or nonsensical feedback.
 - Keep each rule under 30 words.
 - Output NO MORE than 5 rules.
 

@@ -10,13 +10,14 @@ const envString = (key: string, fallback: string): string =>
 export const CONFIG = {
   fetch: {
     limit: envNumber('MAILBIN_FETCH_LIMIT', 10),
-    batchSize: envNumber('MAILBIN_FETCH_BATCH_SIZE', 5),
-    // Per-call batch sizes. Baseline (first sync) packs aggressively so the
-    // whole 50-email seed fits in one Gemini call → 1 RPM used. Incremental
-    // uses a smaller batch since runs are more frequent.
-    classifyBatchSize: envNumber('MAILBIN_CLASSIFY_BATCH_SIZE', 30),
-    baselineClassifyBatchSize: envNumber('MAILBIN_BASELINE_CLASSIFY_BATCH_SIZE', 50),
-    batchDelayMs: envNumber('MAILBIN_FETCH_BATCH_DELAY_MS', 300),
+    // Concurrent messages.get requests per chunk. Gmail tolerates ~10 fine.
+    batchSize: envNumber('MAILBIN_FETCH_BATCH_SIZE', 10),
+    // Emails packed into ONE Gemini call. 50 amortises system prompt cost
+    // and keeps baseline seed within 1 RPM. Same for baseline + incremental.
+    classifyBatchSize: envNumber('MAILBIN_CLASSIFY_BATCH_SIZE', 50),
+    // Gmail messages.list page size. Gmail max is 500.
+    gmailListPageSize: envNumber('MAILBIN_GMAIL_LIST_PAGE_SIZE', 450),
+    batchDelayMs: envNumber('MAILBIN_FETCH_BATCH_DELAY_MS', 100),
     tokenRefreshWindowMs: envNumber('MAILBIN_FETCH_TOKEN_REFRESH_WINDOW_MS', 60000),
   },
   gemini: {
@@ -38,8 +39,13 @@ export const CONFIG = {
     baselineMax: envNumber('MAILBIN_SYNC_BASELINE_MAX', 50),
     incrementalMax: envNumber('MAILBIN_SYNC_INCREMENTAL_MAX', 200),
     pollIntervalMs: envNumber('MAILBIN_SYNC_POLL_INTERVAL_MS', 2000),
-    retryDelayMs: envNumber('MAILBIN_SYNC_RETRY_DELAY_MS', 5000),
-    maxRetries: envNumber('MAILBIN_SYNC_MAX_RETRIES', 3),
+    // Backend-dictated retry waits per error stage. Frontend reads
+    // retryAfterMs from the sync response — no hardcoded waits client-side.
+    retryAfter: {
+      geminiRate: envNumber('MAILBIN_RETRY_GEMINI_RATE_MS', 60000),
+      geminiParse: envNumber('MAILBIN_RETRY_GEMINI_PARSE_MS', 3000),
+      gmailTransient: envNumber('MAILBIN_RETRY_GMAIL_MS', 5000),
+    },
   },
   log: {
     level: envString('MAILBIN_LOG_LEVEL', 'info'),
