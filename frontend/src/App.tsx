@@ -713,7 +713,6 @@ export function App() {
         {onboardingStep === 1 ? (
           <>
             <h2 className="onboarding-title">Welcome to Mailbin</h2>
-            <p className="onboarding-subtitle">You have three bins:</p>
             <div className="onboarding-bins">
               {bins.map((bin) => (
                 <div className="onboarding-bin-row" key={bin.id}>

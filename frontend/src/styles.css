@@ -825,11 +825,12 @@ h1 {
 
 .onboarding-title {
   margin: 4px 0 0;
-  padding: 0 52px;
-  font-size: clamp(1.4rem, 4.5vw, 1.9rem);
+  padding: 0 48px;
+  font-size: clamp(1.15rem, 4.2vw, 1.7rem);
   font-weight: 900;
   letter-spacing: -0.04em;
   color: #241c18;
+  white-space: nowrap;
 }
 
 .onboarding-subtitle {
@@ -898,8 +899,8 @@ h1 {
 }
 
 .onboarding-sleepy-img {
-  width: 40px;
-  height: 40px;
+  width: 64px;
+  height: 64px;
   object-fit: contain;
 }
 
@@ -1117,8 +1118,8 @@ h1 {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-top: 2px;
-  padding: 3px 8px;
+  margin-top: 8px;
+  padding: 4px 10px;
   border-radius: 999px;
   background: #241c18;
   color: #fffdf8;
@@ -1126,6 +1127,23 @@ h1 {
   font-weight: 800;
   white-space: nowrap;
   box-shadow: 0 4px 10px rgba(30, 20, 14, 0.2);
+}
+
+.onboarding-pointer-hint::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 7px solid #241c18;
+}
+
+.onboarding-pointer-hint svg {
+  transform: rotate(45deg);
 }
 
 .onboarding-settings-preview {
