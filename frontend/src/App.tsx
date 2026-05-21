@@ -358,15 +358,14 @@ export function App() {
     }
   }, []);
 
+  // Refetch the active bin on entry and once when sync finishes. Previously a
+  // second effect refired on every syncProgress tick (~5 emails) which reset
+  // scroll position mid-sync. New emails arrive after sync ends; if user wants
+  // live updates they can tap "New Message" once the button surfaces.
   useEffect(() => {
-    if (!selectedBin || !isSyncing) return;
+    if (!selectedBin || !isGmailConnected || isSyncing) return;
     gmailFetch(selectedBin);
-  }, [syncProgress, selectedBin, isSyncing, gmailFetch]);
-
-  useEffect(() => {
-    if (!selectedBin || !isGmailConnected) return;
-    gmailFetch(selectedBin);
-  }, [selectedBin, isGmailConnected, gmailFetch]);
+  }, [selectedBin, isGmailConnected, isSyncing, gmailFetch]);
 
   // Populate all bin statuses after sync finishes so the home screen reflects
   // sleepy/awake correctly without requiring the user to enter each bin first.
@@ -720,7 +719,7 @@ export function App() {
 
         <div className="board-tag">Instructions</div>
         <div className="board-rules">
-          <p className="board-rules-hint">Up to 5 rules, each ≤50 characters</p>
+          <p className="board-rules-hint">Up to 5 rules, each ≤200 characters</p>
           {Array.from({ length: 5 }).map((_, index) => (
             <textarea
               key={index}
@@ -728,7 +727,7 @@ export function App() {
               className="board-rule-input"
               placeholder={`Rule ${index + 1}`}
               value={coreMemory?.customRules[index] ?? ''}
-              maxLength={50}
+              maxLength={200}
               onChange={(e) => setCoreMemory((prev) => {
                 if (!prev) return null;
                 const rules = [...prev.customRules];
@@ -968,6 +967,17 @@ export function App() {
           ) : null}
 
           <section className="mail-list" aria-label={`${activeBin.title} mail list`} ref={mailListRef}>
+            {currentBinStatus === 'empty' && !isSyncing ? (
+              <div className="empty-state" onClick={() => { setFloatingMessage('No unread mail — bin is sleeping 😴'); setTimeout(() => setFloatingMessage(null), 1500); }}>
+                <img className="empty-state-image" src={activeBin.sleepyImage} alt={`${activeBin.title} bin sleeping`} />
+                {floatingMessage ? (
+                  <div className="floating-toast">{floatingMessage}</div>
+                ) : null}
+                <p className="empty-state-message" style={{ '--accent': activeBin.accent } as CSSProperties}>
+                  {binEmptyMessages[activeBin.id]}
+                </p>
+              </div>
+            ) : null}
             {currentBinStatus === 'error' ? (
               <p className="mail-list-status is-error">Could not load emails.</p>
             ) : null}
