@@ -932,17 +932,6 @@ export function App() {
           </button>
 
           <section className="mail-list" aria-label={`${activeBin.title} mail list`} ref={mailListRef}>
-            {currentBinStatus === 'empty' ? (
-              <div className="empty-state" onClick={() => { setFloatingMessage('No unread mail — bin is sleeping 😴'); setTimeout(() => setFloatingMessage(null), 1500); }}>
-                <img className="empty-state-image" src={activeBin.sleepyImage} alt={`${activeBin.title} bin sleeping`} />
-                {floatingMessage ? (
-                  <div className="floating-toast">{floatingMessage}</div>
-                ) : null}
-                <p className="empty-state-message" style={{ '--accent': activeBin.accent } as CSSProperties}>
-                  {binEmptyMessages[activeBin.id]}
-                </p>
-              </div>
-            ) : null}
             {currentBinStatus === 'error' ? (
               <p className="mail-list-status is-error">Could not load emails.</p>
             ) : null}
