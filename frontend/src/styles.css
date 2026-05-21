@@ -254,6 +254,10 @@ h1 {
   width: min(38vw, 280px);
 }
 
+.bin-maybe.is-sleepy {
+  width: min(16vw, 122px);
+}
+
 .bin-button span {
   position: absolute;
   bottom: -26px;
@@ -1279,6 +1283,10 @@ h1 {
 
   .bin-maybe {
     width: 70%;
+  }
+
+  .bin-maybe.is-sleepy {
+    width: 34%;
   }
 
   .folder-bin-image {

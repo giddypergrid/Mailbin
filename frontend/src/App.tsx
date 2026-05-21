@@ -1105,7 +1105,7 @@ export function App() {
             <div className="floating-toast">{floatingMessage}</div>
           ) : null}
           {bins.map((bin) => {
-            const isBinSleepy = binStatuses[bin.id] === 'empty';
+            const isBinSleepy = binStatuses[bin.id] === 'empty' && !isSyncing;
             return (
               <button
                 className={`bin-button bin-${bin.id}${pressedBin === bin.id ? ' is-selected' : ''}${isBinSleepy ? ' is-sleepy' : ''}`}
