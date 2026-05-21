@@ -4,7 +4,7 @@ const config: CapacitorConfig = {
   appId: 'com.sun.mailbin',
   appName: 'Mailbin',
   webDir: 'dist',
-  server: { androidScheme: 'https', url: 'http://10.40.205.49:5174', cleartext: true }
+  server: { androidScheme: 'https' }
 };
 
 export default config;
