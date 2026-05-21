@@ -60,6 +60,66 @@ function collectAttachments(parts: GmailPart[] | undefined): Array<{ filename: s
   return results;
 }
 
+// Gmail encodes body data as base64url. Decode → UTF-8 string.
+function decodeBase64Url(data: string): string {
+  const standard = data.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = standard + '='.repeat((4 - (standard.length % 4)) % 4);
+  try {
+    const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
+    return new TextDecoder('utf-8').decode(bytes);
+  } catch {
+    return '';
+  }
+}
+
+// Strip HTML tags + decode common entities + collapse whitespace.
+function stripHtml(html: string): string {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Walk Gmail's nested payload to find the first part of a given mime type.
+function findBodyData(node: { mimeType?: string; body?: { data?: string }; parts?: Array<{ mimeType?: string; body?: { data?: string }; parts?: unknown[] }> } | undefined, mimeType: string): string | null {
+  if (!node) return null;
+  if (node.mimeType === mimeType && node.body?.data) return node.body.data;
+  if (node.parts) {
+    for (const p of node.parts) {
+      const found = findBodyData(p as never, mimeType);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+// Prefer text/plain, fall back to stripped text/html, fall back to snippet.
+function extractBody(message: GmailMessageResponse, maxChars: number): string {
+  const payload = message.payload;
+  if (payload) {
+    const plain = findBodyData(payload, 'text/plain');
+    if (plain) {
+      const decoded = decodeBase64Url(plain).replace(/\s+/g, ' ').trim();
+      if (decoded) return decoded.slice(0, maxChars);
+    }
+    const html = findBodyData(payload, 'text/html');
+    if (html) {
+      const decoded = stripHtml(decodeBase64Url(html));
+      if (decoded) return decoded.slice(0, maxChars);
+    }
+  }
+  return message.snippet || '';
+}
+
 function formatDateForGmail(isoDate: string): string {
   const d = new Date(isoDate);
   return `${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${String(d.getUTCDate()).padStart(2, '0')}`;
@@ -103,9 +163,11 @@ Deno.serve(async (req: Request) => {
 
     const isBaseline = !connection.last_synced_at;
     const maxEmails = isBaseline ? CONFIG.sync.baselineMax : CONFIG.sync.incrementalMax;
+    // category:primary excludes Promotions / Social / Updates / Forums tabs —
+    // prevents trial-expired, low-balance, CI failure, etc. from polluting bins.
     const gmailQuery = isBaseline
-      ? 'in:inbox is:unread'
-      : `in:inbox after:${formatDateForGmail(connection.last_synced_at!)}`;
+      ? 'in:inbox is:unread category:primary'
+      : `in:inbox category:primary after:${formatDateForGmail(connection.last_synced_at!)}`;
 
     log('GMAIL-SYNC', 'Starting', { userId, isBaseline, maxEmails, gmailQuery });
 
@@ -156,12 +218,35 @@ Deno.serve(async (req: Request) => {
 
     // 4. Process in batches
     //    - fetchConcurrency: small (≤5) → avoid Gmail 429
-    //    - classifyBatchSize: large (≥15) → amortize system-prompt cost across emails
+    //    - classifyBatchSize: large → amortize system-prompt cost across emails
+    //      Baseline uses bigger batch (≥50) to seed in 1 Gemini call → 1 RPM.
     let syncedCount = 0;
     const fetchConcurrency = CONFIG.fetch.batchSize;
-    const classifyBatchSize = CONFIG.fetch.classifyBatchSize;
+    const classifyBatchSize = isBaseline
+      ? CONFIG.fetch.baselineClassifyBatchSize
+      : CONFIG.fetch.classifyBatchSize;
     const batchDelay = CONFIG.fetch.batchDelayMs;
     let oldestReceivedAt: string | null = null;
+    let rateLimited = false;
+
+    // Rate-limit pacer: track Gemini call timestamps in this invocation.
+    // Before each call, if RPM quota would be exceeded within the trailing 60s
+    // window, sleep until the oldest call falls out of the window.
+    const geminiCallTimestamps: number[] = [];
+    const rpmLimit = CONFIG.gemini.rpm;
+    async function waitForRpmSlot() {
+      while (geminiCallTimestamps.length >= rpmLimit) {
+        const oldest = geminiCallTimestamps[0];
+        const elapsed = Date.now() - oldest;
+        if (elapsed >= 60_000) {
+          geminiCallTimestamps.shift();
+        } else {
+          const sleepMs = 60_000 - elapsed + 250;
+          log('GMAIL-SYNC', 'Pacing for Gemini RPM', { sleepMs, rpmLimit });
+          await new Promise((r) => setTimeout(r, sleepMs));
+        }
+      }
+    }
 
     for (let i = 0; i < newMessages.length; i += classifyBatchSize) {
       const classifyBatch = newMessages.slice(i, i + classifyBatchSize);
@@ -184,17 +269,31 @@ Deno.serve(async (req: Request) => {
 
       if (validMessages.length === 0) continue;
 
+      // 2000 chars ≈ 500 tokens per email; full HTML body stripped to text.
+      // Snippet alone misses booking refs, OTPs buried mid-body, etc.
       const emailInputs = validMessages.map((m) => ({
         id: m.id,
         from: getHeader(m, 'From'),
         subject: getHeader(m, 'Subject') || '(No subject)',
         snippet: m.snippet || '',
+        body: extractBody(m, 2000),
       }));
 
-      // One Gemini call for the whole batch — amortizes system prompt
+      // One Gemini call for the whole batch — amortizes system prompt.
       let classification: Record<string, { bin: string; summary: string; theme: string; fromWho: string; isCustomized: boolean }> = {};
       if (CONFIG.gemini.apiKey) {
-        classification = await classifyWithGemini(userId, customRules, emailInputs);
+        await waitForRpmSlot();
+        geminiCallTimestamps.push(Date.now());
+        const outcome = await classifyWithGemini(userId, customRules, emailInputs);
+        classification = outcome.classifications;
+        if (outcome.rateLimited) {
+          rateLimited = true;
+          // Stop processing further batches this invocation — return what we
+          // have so far. last_synced_at intentionally NOT advanced (hasMore
+          // logic below handles that) so the next sync resumes here.
+          log('GMAIL-SYNC', 'Stopping due to Gemini rate limit', { userId, syncedCount });
+          break;
+        }
       }
 
       const classifiedCount = Object.keys(classification).length;
@@ -246,7 +345,11 @@ Deno.serve(async (req: Request) => {
     }
 
     // 5. Advance last_synced_at
-    if (!hasMore) {
+    //    - If rate-limited, leave cursor untouched and force hasMore=true so
+    //      the frontend retries this same range after waiting.
+    if (rateLimited) {
+      hasMore = true;
+    } else if (!hasMore) {
       await updateLastSyncedAt(supabaseUrl, serviceRoleKey, connection.id);
     } else if (isBaseline && oldestReceivedAt) {
       // Baseline hit the cap — set cursor to 1 day before oldest processed email
@@ -256,8 +359,8 @@ Deno.serve(async (req: Request) => {
       await updateLastSyncedAt(supabaseUrl, serviceRoleKey, connection.id, d.toISOString());
     }
 
-    log('GMAIL-SYNC', 'Complete', { userId, syncedCount, isBaseline, hasMore });
-    return jsonResponse({ syncedCount, hasMore, isBaseline });
+    log('GMAIL-SYNC', 'Complete', { userId, syncedCount, isBaseline, hasMore, rateLimited });
+    return jsonResponse({ syncedCount, hasMore, isBaseline, rateLimited });
   } catch (error) {
     logWeird('GMAIL-SYNC', 'Sync failed', { reason: error instanceof Error ? error.message : String(error) });
     return jsonResponse({ error: error instanceof Error ? error.message : 'sync_failed' }, 500);

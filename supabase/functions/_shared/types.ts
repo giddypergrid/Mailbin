@@ -29,7 +29,7 @@ export type GmailMessageResponse = {
     parts?: GmailPart[];
     mimeType?: string;
     filename?: string;
-    body?: { size?: number; attachmentId?: string };
+    body?: { size?: number; attachmentId?: string; data?: string };
   };
 };
 
@@ -37,7 +37,7 @@ export type GmailPart = {
   partId?: string;
   mimeType?: string;
   filename?: string;
-  body?: { size?: number; attachmentId?: string };
+  body?: { size?: number; attachmentId?: string; data?: string };
   parts?: GmailPart[];
 };
 
