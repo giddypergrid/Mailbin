@@ -307,15 +307,14 @@ export function App() {
     }
   }, []);
 
+  // Refetch the active bin on entry and once when sync finishes. Previously a
+  // second effect refired on every syncProgress tick (~5 emails) which reset
+  // scroll position mid-sync. New emails arrive after sync ends; if user wants
+  // live updates they can tap "New Message" once the button surfaces.
   useEffect(() => {
-    if (!selectedBin || !isSyncing) return;
+    if (!selectedBin || !isGmailConnected || isSyncing) return;
     gmailFetch(selectedBin);
-  }, [syncProgress, selectedBin, isSyncing, gmailFetch]);
-
-  useEffect(() => {
-    if (!selectedBin || !isGmailConnected) return;
-    gmailFetch(selectedBin);
-  }, [selectedBin, isGmailConnected, gmailFetch]);
+  }, [selectedBin, isGmailConnected, isSyncing, gmailFetch]);
 
   const loadMoreGmail = useCallback(() => {
     if (!selectedBin) return;
@@ -644,7 +643,7 @@ export function App() {
 
         <div className="board-tag">Instructions</div>
         <div className="board-rules">
-          <p className="board-rules-hint">Up to 5 rules, each ≤50 characters</p>
+          <p className="board-rules-hint">Up to 5 rules, each ≤200 characters</p>
           {Array.from({ length: 5 }).map((_, index) => (
             <textarea
               key={index}
@@ -652,7 +651,7 @@ export function App() {
               className="board-rule-input"
               placeholder={`Rule ${index + 1} — e.g. "LinkedIn → maybe"`}
               value={coreMemory?.customRules[index] ?? ''}
-              maxLength={50}
+              maxLength={200}
               onChange={(e) => setCoreMemory((prev) => {
                 if (!prev) return null;
                 const rules = [...prev.customRules];
