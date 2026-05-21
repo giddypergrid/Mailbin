@@ -902,34 +902,36 @@ export function App() {
             );
           })()}
 
-          <button
-            className="new-emails-button"
-            type="button"
-            onClick={() => {
-              mailListRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-              if (newEmailCount > 0 && selectedBin) {
-                setNewEmailCountByBin((prev) => ({ ...prev, [selectedBin]: 0 }));
-                gmailFetch(selectedBin);
-              }
-            }}
-          >
-            {isSyncing ? (
-              <>
-                <RefreshCw size={14} className="sync-spinner" />
-                Syncing...
-              </>
-            ) : newEmailCount > 0 ? (
-              <>
-                <ArrowUp size={14} />
-                New Message
-              </>
-            ) : (
-              <>
-                <ArrowUp size={14} />
-                Back to top
-              </>
-            )}
-          </button>
+          {(isSyncing || newEmailCount > 0 || activeMails.length > 0) ? (
+            <button
+              className="new-emails-button"
+              type="button"
+              onClick={() => {
+                mailListRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+                if (newEmailCount > 0 && selectedBin) {
+                  setNewEmailCountByBin((prev) => ({ ...prev, [selectedBin]: 0 }));
+                  gmailFetch(selectedBin);
+                }
+              }}
+            >
+              {isSyncing ? (
+                <>
+                  <RefreshCw size={14} className="sync-spinner" />
+                  Syncing...
+                </>
+              ) : newEmailCount > 0 ? (
+                <>
+                  <ArrowUp size={14} />
+                  New Message
+                </>
+              ) : (
+                <>
+                  <ArrowUp size={14} />
+                  Back to top
+                </>
+              )}
+            </button>
+          ) : null}
 
           <section className="mail-list" aria-label={`${activeBin.title} mail list`} ref={mailListRef}>
             {currentBinStatus === 'error' ? (
