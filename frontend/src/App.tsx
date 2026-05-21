@@ -21,6 +21,12 @@ const binEmptyMessages: Record<BinId, string> = {
   maybe: 'Nothing to maybe about. Pure peace.',
 };
 
+const binSleepySpeech: Record<BinId, string> = {
+  emergency: 'Zzz... no panic mail.',
+  info: 'Zzz... nothing tiny and useful.',
+  maybe: 'Zzz... nothing to ignore.',
+};
+
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabaseFunctionsUrl = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
@@ -856,12 +862,17 @@ export function App() {
             ← Back to bins
           </button>
 
-          <section className="folder-hero">
-            <img className="folder-bin-image" src={activeBin.image} alt={`${activeBin.title} bin`} />
-            <div className="speech-bubble" style={{ '--accent': activeBin.accent } as CSSProperties}>
-              {binSpeech[activeBin.id]}
-            </div>
-          </section>
+          {(() => {
+            const isBinSleepy = activeMails.length === 0;
+            return (
+              <section className="folder-hero">
+                <img className="folder-bin-image" src={isBinSleepy ? activeBin.sleepyImage : activeBin.image} alt={`${activeBin.title} bin`} />
+                <div className="speech-bubble" style={{ '--accent': activeBin.accent } as CSSProperties}>
+                  {isBinSleepy ? binSleepySpeech[activeBin.id] : binSpeech[activeBin.id]}
+                </div>
+              </section>
+            );
+          })()}
 
           <button
             className="new-emails-button"
@@ -1030,17 +1041,28 @@ export function App() {
           {floatingMessage ? (
             <div className="floating-toast">{floatingMessage}</div>
           ) : null}
-          {bins.map((bin) => (
-            <button
-              className={`bin-button bin-${bin.id}${pressedBin === bin.id ? ' is-selected' : ''}`}
-              key={bin.id}
-              onClick={() => handleBinClick(bin.id)}
-              style={{ '--accent': bin.accent } as CSSProperties}
-              type="button"
-            >
-              <img src={bin.image} alt={`${bin.title} bin`} />
-            </button>
-          ))}
+          {bins.map((bin) => {
+            const isBinSleepy = binStatuses[bin.id] === 'empty';
+            return (
+              <button
+                className={`bin-button bin-${bin.id}${pressedBin === bin.id ? ' is-selected' : ''}${isBinSleepy ? ' is-sleepy' : ''}`}
+                key={bin.id}
+                onClick={() => {
+                  if (!isGmailConnected) { shakeConnectButton(); return; }
+                  if (isBinSleepy) {
+                    setFloatingMessage(`${bin.title} bin is sleepy 😴`);
+                    setTimeout(() => setFloatingMessage(null), 1500);
+                    return;
+                  }
+                  handleBinClick(bin.id);
+                }}
+                style={{ '--accent': bin.accent } as CSSProperties}
+                type="button"
+              >
+                <img src={isBinSleepy ? bin.sleepyImage : bin.image} alt={`${bin.title} bin`} />
+              </button>
+            );
+          })}
         </section>
       </main>
     </>
