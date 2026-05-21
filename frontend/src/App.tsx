@@ -85,7 +85,7 @@ export function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState(0);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
-  const [newEmailCount, setNewEmailCount] = useState(0);
+  const [newEmailCountByBin, setNewEmailCountByBin] = useState<Record<BinId, number>>({ emergency: 0, info: 0, maybe: 0 });
   const [floatingMessage, setFloatingMessage] = useState<string | null>(null);
   const [isConnectHighlighted, setIsConnectHighlighted] = useState(false);
   const [coreMemory, setCoreMemory] = useState<CoreMemory | null>(null);
@@ -243,7 +243,7 @@ export function App() {
     setIsSyncing(true);
     setSyncProgress(0);
     setSyncMessage(null);
-    setNewEmailCount(0);
+    setNewEmailCountByBin({ emergency: 0, info: 0, maybe: 0 });
     // Cap how many times we ride out a rate-limit cycle before giving up so
     // the user is never stuck spinning forever.
     let rateLimitRetries = 0;
@@ -252,10 +252,17 @@ export function App() {
       let hasMore = true;
       while (hasMore) {
         const response = await fetch(`${supabaseFunctionsUrl}/gmail-sync`, { headers: await getAuthHeaders() });
-        const data = await response.json() as { syncedCount?: number; hasMore?: boolean; isBaseline?: boolean; rateLimited?: boolean };
+        const data = await response.json() as { syncedCount?: number; syncedByBin?: Record<BinId, number>; hasMore?: boolean; isBaseline?: boolean; rateLimited?: boolean };
         const newlySynced = data.syncedCount ?? 0;
         setSyncProgress((prev) => prev + newlySynced);
-        if (newlySynced > 0) setNewEmailCount((prev) => prev + newlySynced);
+        if (newlySynced > 0) {
+          const syncedByBin = data.syncedByBin ?? { emergency: 0, info: 0, maybe: 0 };
+          setNewEmailCountByBin((prev) => ({
+            emergency: prev.emergency + (syncedByBin.emergency ?? 0),
+            info: prev.info + (syncedByBin.info ?? 0),
+            maybe: prev.maybe + (syncedByBin.maybe ?? 0),
+          }));
+        }
 
         if (data.rateLimited) {
           if (rateLimitRetries >= maxRateLimitRetries) {
@@ -403,6 +410,7 @@ export function App() {
     : getMailsForBin(selectedBin);
   const activeMails = sourceMails.filter((mail) => !dismissedMailIds.includes(mail.id));
   const currentBinStatus = selectedBin ? binStatuses[selectedBin] : 'idle';
+  const newEmailCount = selectedBin ? newEmailCountByBin[selectedBin] : 0;
 
   // When user swipes the last email locally, flip bin status to 'empty' so the
   // home screen reflects sleepy immediately. Without this, only a server-fetch
@@ -891,7 +899,7 @@ export function App() {
             onClick={() => {
               mailListRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
               if (newEmailCount > 0 && selectedBin) {
-                setNewEmailCount(0);
+                setNewEmailCountByBin((prev) => ({ ...prev, [selectedBin]: 0 }));
                 gmailFetch(selectedBin);
               }
             }}
@@ -1058,15 +1066,7 @@ export function App() {
               <button
                 className={`bin-button bin-${bin.id}${pressedBin === bin.id ? ' is-selected' : ''}${isBinSleepy ? ' is-sleepy' : ''}`}
                 key={bin.id}
-                onClick={() => {
-                  if (!isGmailConnected) { shakeConnectButton(); return; }
-                  if (isBinSleepy) {
-                    setFloatingMessage(`${bin.title} bin is sleepy 😴`);
-                    setTimeout(() => setFloatingMessage(null), 1500);
-                    return;
-                  }
-                  handleBinClick(bin.id);
-                }}
+                onClick={() => handleBinClick(bin.id)}
                 style={{ '--accent': bin.accent } as CSSProperties}
                 type="button"
               >

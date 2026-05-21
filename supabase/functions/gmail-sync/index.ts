@@ -221,6 +221,7 @@ Deno.serve(async (req: Request) => {
     //    - classifyBatchSize: large → amortize system-prompt cost across emails
     //      Baseline uses bigger batch (≥50) to seed in 1 Gemini call → 1 RPM.
     let syncedCount = 0;
+    const syncedByBin: Record<'emergency' | 'info' | 'maybe', number> = { emergency: 0, info: 0, maybe: 0 };
     const fetchConcurrency = CONFIG.fetch.batchSize;
     const classifyBatchSize = isBaseline
       ? CONFIG.fetch.baselineClassifyBatchSize
@@ -334,6 +335,8 @@ Deno.serve(async (req: Request) => {
           attachment_total_kb: attachmentResult ? Math.round(attachmentResult.totalKb) : 0,
         });
         syncedCount++;
+        const binKey = (geminiResult?.bin || 'maybe') as 'emergency' | 'info' | 'maybe';
+        if (binKey in syncedByBin) syncedByBin[binKey]++;
         if (receivedAt && (!oldestReceivedAt || receivedAt < oldestReceivedAt)) {
           oldestReceivedAt = receivedAt;
         }
@@ -360,7 +363,7 @@ Deno.serve(async (req: Request) => {
     }
 
     log('GMAIL-SYNC', 'Complete', { userId, syncedCount, isBaseline, hasMore, rateLimited });
-    return jsonResponse({ syncedCount, hasMore, isBaseline, rateLimited });
+    return jsonResponse({ syncedCount, syncedByBin, hasMore, isBaseline, rateLimited });
   } catch (error) {
     logWeird('GMAIL-SYNC', 'Sync failed', { reason: error instanceof Error ? error.message : String(error) });
     return jsonResponse({ error: error instanceof Error ? error.message : 'sync_failed' }, 500);
