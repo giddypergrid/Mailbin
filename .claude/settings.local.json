@@ -11,7 +11,8 @@
       "Bash(npx tsc *)",
       "Bash(git commit *)",
       "Bash(npm --prefix frontend run build)",
-      "Bash(curl.exe -i -X OPTIONS \"https://ghsrkpghruvhibqjuymr.supabase.co/functions/v1/core-memory\" -H \"Origin: https://localhost\" -H \"Access-Control-Request-Method: PUT\" -H \"Access-Control-Request-Headers: authorization, content-type\")"
+      "Bash(curl.exe -i -X OPTIONS \"https://ghsrkpghruvhibqjuymr.supabase.co/functions/v1/core-memory\" -H \"Origin: https://localhost\" -H \"Access-Control-Request-Method: PUT\" -H \"Access-Control-Request-Headers: authorization, content-type\")",
+      "Bash(git check-ignore *)"
     ]
   }
 }

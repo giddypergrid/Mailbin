@@ -195,6 +195,10 @@ export function App() {
         processOAuthParams(url.searchParams);
       }
     });
+    // Reset spinner if user closes the in-app browser without completing OAuth
+    Browser.addListener('browserFinished', () => {
+      setIsConnectingGmail(false);
+    });
   }, []);
 
   useEffect(() => {
