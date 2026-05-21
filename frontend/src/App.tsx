@@ -52,6 +52,29 @@ function navigateHome() {
   window.location.hash = '/';
 }
 
+type SyncErrorStage = 'gmail-list' | 'gmail-detail' | 'gemini-rate' | 'gemini-parse';
+
+function retryNoticeFor(stage: SyncErrorStage | null | undefined, waitMs: number): string {
+  const seconds = Math.max(1, Math.round(waitMs / 1000));
+  switch (stage) {
+    case 'gemini-rate':  return `! AI model is busy — retrying in ${seconds}s`;
+    case 'gemini-parse': return `! Hiccup classifying — retrying in ${seconds}s`;
+    case 'gmail-list':
+    case 'gmail-detail': return `! Gmail is busy — retrying in ${seconds}s`;
+    default:             return `! Retrying in ${seconds}s`;
+  }
+}
+
+function finalErrorNoticeFor(stage: SyncErrorStage | null | undefined): string {
+  switch (stage) {
+    case 'gemini-rate':  return 'AI free tier exhausted. Come back later.';
+    case 'gemini-parse': return 'Classification keeps failing. Try again later.';
+    case 'gmail-list':
+    case 'gmail-detail': return 'Gmail not responding. Try again later.';
+    default:             return 'Sync failed. Try again later.';
+  }
+}
+
 function relativeTime(iso: string | null | undefined): string {
   if (!iso) return '';
   const ts = new Date(iso).getTime();
@@ -244,15 +267,24 @@ export function App() {
     setSyncProgress(0);
     setSyncMessage(null);
     setNewEmailCountByBin({ emergency: 0, info: 0, maybe: 0 });
-    // Cap how many times we ride out a rate-limit cycle before giving up so
-    // the user is never stuck spinning forever.
-    let rateLimitRetries = 0;
-    const maxRateLimitRetries = 2;
+    // Cap how many error cycles we ride out so the user is never stuck
+    // spinning forever. Reset after any clean page.
+    let errorRetries = 0;
+    const maxErrorRetries = 2;
     try {
       let hasMore = true;
       while (hasMore) {
         const response = await fetch(`${supabaseFunctionsUrl}/gmail-sync`, { headers: await getAuthHeaders() });
-        const data = await response.json() as { syncedCount?: number; syncedByBin?: Record<BinId, number>; hasMore?: boolean; isBaseline?: boolean; rateLimited?: boolean };
+        const data = await response.json() as {
+          syncedCount?: number;
+          syncedByBin?: Record<BinId, number>;
+          hasMore?: boolean;
+          hasError?: boolean;
+          errorStage?: SyncErrorStage | null;
+          failedCount?: number;
+          retryAfterMs?: number;
+          isBaseline?: boolean;
+        };
         const newlySynced = data.syncedCount ?? 0;
         setSyncProgress((prev) => prev + newlySynced);
         if (newlySynced > 0) {
@@ -264,20 +296,22 @@ export function App() {
           }));
         }
 
-        if (data.rateLimited) {
-          if (rateLimitRetries >= maxRateLimitRetries) {
-            setSyncMessage('Gemini free tier exhausted. Come back later.');
+        if (data.hasError) {
+          if (errorRetries >= maxErrorRetries) {
+            setSyncMessage(finalErrorNoticeFor(data.errorStage));
             break;
           }
-          rateLimitRetries += 1;
-          setSyncMessage('Gemini free tier hit — waiting 60s before retrying…');
-          await new Promise((r) => setTimeout(r, 60_000));
+          errorRetries += 1;
+          const waitMs = data.retryAfterMs ?? 5000;
+          setSyncMessage(retryNoticeFor(data.errorStage, waitMs));
+          await new Promise((resolve) => setTimeout(resolve, waitMs));
           setSyncMessage('Retrying…');
           continue;
         }
 
+        errorRetries = 0;
         hasMore = data.hasMore ?? false;
-        if (hasMore) await new Promise((r) => setTimeout(r, 2000));
+        if (hasMore) await new Promise((resolve) => setTimeout(resolve, 2000));
       }
     } catch (error) {
       logWeird('sync loop crashed', { error: String(error) });
