@@ -404,6 +404,17 @@ export function App() {
   const activeMails = sourceMails.filter((mail) => !dismissedMailIds.includes(mail.id));
   const currentBinStatus = selectedBin ? binStatuses[selectedBin] : 'idle';
 
+  // When user swipes the last email locally, flip bin status to 'empty' so the
+  // home screen reflects sleepy immediately. Without this, only a server-fetch
+  // would update binStatuses, and re-entering the bin would show stale emails.
+  useEffect(() => {
+    if (!selectedBin) return;
+    if (binStatuses[selectedBin] === 'loading') return;
+    if (activeMails.length === 0 && binStatuses[selectedBin] !== 'empty') {
+      setBinStatuses((prev) => ({ ...prev, [selectedBin]: 'empty' }));
+    }
+  }, [selectedBin, activeMails.length, binStatuses]);
+
   function getGmailStatusState(): 'checking' | 'connected' | 'error' | 'idle' {
     if (isConnectingGmail) return 'checking';
     if (isGmailConnected) return 'connected';
