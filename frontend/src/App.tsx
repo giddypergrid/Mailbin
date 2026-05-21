@@ -864,7 +864,7 @@ export function App() {
           </button>
 
           <section className="mail-list" aria-label={`${activeBin.title} mail list`} ref={mailListRef}>
-            {currentBinStatus === 'empty' ? (
+            {currentBinStatus === 'empty' && !isSyncing ? (
               <div className="empty-state" onClick={() => { setFloatingMessage('No unread mail — bin is sleeping 😴'); setTimeout(() => setFloatingMessage(null), 1500); }}>
                 <img className="empty-state-image" src={activeBin.sleepyImage} alt={`${activeBin.title} bin sleeping`} />
                 {floatingMessage ? (
