@@ -170,6 +170,42 @@ export async function markFeedbackProcessed(supabaseUrl: string, serviceRoleKey:
   return response.ok;
 }
 
+export type GeminiSlotResult =
+  | { granted: true }
+  | { granted: false; retryAfterMs: number };
+
+export async function reserveGeminiSlot(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  rpmLimit: number,
+): Promise<GeminiSlotResult> {
+  const response = await fetch(
+    `${supabaseUrl}/rest/v1/rpc/reserve_gemini_slot`,
+    {
+      method: 'POST',
+      headers: supabaseHeaders(serviceRoleKey),
+      body: JSON.stringify({ rpm_limit: rpmLimit }),
+    },
+  );
+
+  if (!response.ok) {
+    // DB failure → grant the slot so sync isn't blocked (degrades to no global limit).
+    logWeird('DB', 'reserveGeminiSlot RPC failed', { status: response.status });
+    return { granted: true };
+  }
+
+  const rows = await response.json() as Array<{ granted: boolean; retry_after_ms: number }>;
+  const row = rows[0];
+  if (!row) {
+    logWeird('DB', 'reserveGeminiSlot returned no row');
+    return { granted: true };
+  }
+
+  return row.granted
+    ? { granted: true }
+    : { granted: false, retryAfterMs: row.retry_after_ms };
+}
+
 export async function fetchEmails(
   supabaseUrl: string,
   serviceRoleKey: string,

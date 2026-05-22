@@ -45,7 +45,7 @@ import { processAttachments } from '../_shared/attachment-processor.ts';
 import { type GmailPart, type GmailMessageResponse } from '../_shared/types.ts';
 import { CONFIG } from '../_shared/config.ts';
 import { fetchMessageList, fetchMessageDetail, getValidAccessToken } from '../_shared/gmail-client.ts';
-import { fetchUserConnection, fetchCoreMemory, fetchExistingMessageIds, upsertEmail, updateLastSyncedAt } from '../_shared/db.ts';
+import { fetchUserConnection, fetchCoreMemory, fetchExistingMessageIds, upsertEmail, updateLastSyncedAt, reserveGeminiSlot } from '../_shared/db.ts';
 
 declare const Deno: {
   serve(handler: (req: Request) => Response | Promise<Response>): void;
@@ -285,25 +285,7 @@ Deno.serve(async (req: Request) => {
     let oldestReceivedAt: string | null = null;
     const failedMessageIds: string[] = [];
     let geminiErrorStage: 'gemini-rate' | 'gemini-parse' | null = null;
-
-    // Rate-limit pacer: track Gemini call timestamps in this invocation.
-    // Before each call, if RPM quota would be exceeded within the trailing 60s
-    // window, sleep until the oldest call falls out of the window.
-    const geminiCallTimestamps: number[] = [];
-    const rpmLimit = CONFIG.gemini.rpm;
-    async function waitForRpmSlot() {
-      while (geminiCallTimestamps.length >= rpmLimit) {
-        const oldest = geminiCallTimestamps[0];
-        const elapsed = Date.now() - oldest;
-        if (elapsed >= 60_000) {
-          geminiCallTimestamps.shift();
-        } else {
-          const sleepMs = 60_000 - elapsed + 250;
-          log('GMAIL-SYNC', 'Pacing for Gemini RPM', { sleepMs, rpmLimit });
-          await new Promise((resolve) => setTimeout(resolve, sleepMs));
-        }
-      }
-    }
+    let geminiRateRetryAfterMs: number | null = null;
 
     for (let batchStart = 0; batchStart < newMessages.length; batchStart += classifyBatchSize) {
       const classifyBatch = newMessages.slice(batchStart, batchStart + classifyBatchSize);
@@ -355,15 +337,18 @@ Deno.serve(async (req: Request) => {
         }
 
         const chunkResults = await Promise.all(chunks.map(async (chunk) => {
-          await waitForRpmSlot();
-          geminiCallTimestamps.push(Date.now());
+          const slot = await reserveGeminiSlot(supabaseUrl, serviceRoleKey, CONFIG.gemini.rpm);
+          if (!slot.granted) {
+            return { chunk, outcome: { classifications: {}, errorStage: 'rate' as const }, retryAfterMs: slot.retryAfterMs };
+          }
           const outcome = await classifyWithGemini(userId, customRules, chunk);
-          return { chunk, outcome };
+          return { chunk, outcome, retryAfterMs: undefined as number | undefined };
         }));
 
-        for (const { chunk, outcome } of chunkResults) {
+        for (const { chunk, outcome, retryAfterMs } of chunkResults) {
           if (outcome.errorStage === 'rate') {
             geminiErrorStage = 'gemini-rate';
+            if (retryAfterMs != null && geminiRateRetryAfterMs == null) geminiRateRetryAfterMs = retryAfterMs;
           } else if (outcome.errorStage === 'parse' && geminiErrorStage !== 'gemini-rate') {
             geminiErrorStage = 'gemini-parse';
           }
@@ -476,7 +461,9 @@ Deno.serve(async (req: Request) => {
       hasError,
       errorStage,
       failedCount: failedMessageIds.length,
-      retryAfterMs: errorStage ? retryAfterMsFor(errorStage) : undefined,
+      retryAfterMs: errorStage
+        ? (errorStage === 'gemini-rate' && geminiRateRetryAfterMs != null ? geminiRateRetryAfterMs : retryAfterMsFor(errorStage))
+        : undefined,
       isBaseline,
     });
   } catch (error) {
