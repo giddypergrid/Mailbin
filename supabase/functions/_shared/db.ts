@@ -216,7 +216,9 @@ export async function fetchEmails(
 ): Promise<{ rows: GmailEmailRow[]; nextCursor: string | null }> {
   let url = `${supabaseUrl}/rest/v1/gmail_emails?select=*&user_id=eq.${userId}&is_read=eq.false&order=received_at.desc.nullslast&limit=${limit}`;
   if (bin) url += `&bin=eq.${bin}`;
-  if (before) url += `&received_at=lt.${before}`;
+  // received_at is an ISO timestamp containing '+'; '+' means space in a query
+  // string, so it must be percent-encoded or PostgREST sees a broken filter.
+  if (before) url += `&received_at=lt.${encodeURIComponent(before)}`;
 
   const response = await fetch(url, { headers: supabaseHeaders(serviceRoleKey) });
 
