@@ -425,11 +425,18 @@ h1 {
   transition: border-color 160ms ease;
 }
 
-.mail-card:hover,
+/* hover only on devices with a real pointer — on touch, :hover sticks after a
+   tap and leaves cards lifted ("hovering") until the next interaction. */
+@media (hover: hover) {
+  .mail-card:hover {
+    border-color: #b8a88a;
+    transform: translateY(-1px);
+  }
+}
+
 .mail-card:focus-visible {
   border-color: #b8a88a;
   outline: none;
-  transform: translateY(-1px);
 }
 
 .mail-card.is-dismissing-right {
