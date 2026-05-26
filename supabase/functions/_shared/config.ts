@@ -28,6 +28,8 @@ export const CONFIG = {
     // Split each classify batch into N-email chunks fired in parallel. 10
     // gives ~5 parallel calls for a 50-email baseline → ~15-20s vs ~50-70s.
     chunkSize: envNumber('MAILBIN_GEMINI_CHUNK_SIZE', 10),
+    // Internal reasoning tokens per call. 0 = thinking off (fastest).
+    thinkingBudget: envNumber('MAILBIN_GEMINI_THINKING_BUDGET', 0),
   },
   coreMemory: {
     maxRules: 5,

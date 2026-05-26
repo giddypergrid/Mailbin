@@ -367,6 +367,14 @@ export function App() {
     gmailFetch(selectedBin);
   }, [selectedBin, isGmailConnected, isSyncing, gmailFetch]);
 
+  // Entering a bin means its synced emails are now shown → clear its "new"
+  // count so "New Message" only surfaces for emails synced WHILE viewing.
+  useEffect(() => {
+    if (selectedBin) {
+      setNewEmailCountByBin((prev) => (prev[selectedBin] === 0 ? prev : { ...prev, [selectedBin]: 0 }));
+    }
+  }, [selectedBin]);
+
   // Populate all bin statuses after sync finishes so the home screen reflects
   // sleepy/awake correctly without requiring the user to enter each bin first.
   useEffect(() => {
@@ -426,6 +434,7 @@ export function App() {
   }, []);
 
   const mailListRef = useRef<HTMLElement>(null);
+  const loadMoreRef = useRef<HTMLParagraphElement>(null);
   const syncActiveRef = useRef(false);
   const dragStartXRef = useRef(0);
   const dragStartYRef = useRef(0);
@@ -435,13 +444,14 @@ export function App() {
   const feedbackMailRef = useRef<MailItem | null>(null);
 
   useEffect(() => {
-    const el = mailListRef.current;
-    if (!el) return;
-    const onScroll = () => {
-      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 400) loadMoreGmail();
-    };
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
+    const sentinel = loadMoreRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting) loadMoreGmail(); },
+      { root: mailListRef.current, rootMargin: '400px' },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
   }, [loadMoreGmail]);
 
   const activeBin = getBin(selectedBin);
@@ -1019,7 +1029,7 @@ export function App() {
               );
             })}
             {currentBinStatus === 'ready' && binCursors[selectedBin!] ? (
-              <p className="mail-list-status">Scroll for more...</p>
+              <p className="mail-list-status" ref={loadMoreRef}>Scroll for more...</p>
             ) : null}
           </section>
 

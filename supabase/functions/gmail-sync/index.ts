@@ -38,12 +38,13 @@
 import { handleCors } from '../_shared/cors.ts';
 import { jsonResponse, requireEnv } from '../_shared/http.ts';
 import { verifyJwt } from '../_shared/auth.ts';
-import { log, logWeird } from '../_shared/logger.ts';
+import { logWeird } from '../_shared/logger.ts';
 import { classifyWithGemini } from '../_shared/gemini.ts';
 import { parseFromHeader } from '../_shared/mail-builder.ts';
 import { processAttachments } from '../_shared/attachment-processor.ts';
 import { type GmailPart, type GmailMessageResponse } from '../_shared/types.ts';
 import { CONFIG } from '../_shared/config.ts';
+import { createTimer } from '../_shared/timing.ts';
 import { fetchMessageList, fetchMessageDetail, getValidAccessToken } from '../_shared/gmail-client.ts';
 import { fetchUserConnection, fetchCoreMemory, fetchExistingMessageIds, upsertEmail, updateLastSyncedAt, reserveGeminiSlot } from '../_shared/db.ts';
 
@@ -158,6 +159,11 @@ Deno.serve(async (req: Request) => {
   const corsResponse = handleCors(req);
   if (corsResponse) return corsResponse;
 
+  // One timer per invocation; summary() fires once in finally below so every
+  // exit path (success, early-return, error) logs exactly one line.
+  const timer = createTimer('gmail-sync');
+  const syncSummary: Record<string, unknown> = {};
+
   try {
     const supabaseUrl = requireEnv('MAILBIN_SUPABASE_URL');
     const serviceRoleKey = requireEnv('MAILBIN_SUPABASE_SERVICE_ROLE_KEY');
@@ -165,7 +171,10 @@ Deno.serve(async (req: Request) => {
     if (!userId) return jsonResponse({ error: 'Unauthorized' }, 401);
 
     const connection = await fetchUserConnection(supabaseUrl, serviceRoleKey, userId);
-    if (!connection) return jsonResponse({ syncedCount: 0 });
+    if (!connection) {
+      syncSummary.outcome = 'no-connection';
+      return jsonResponse({ syncedCount: 0 });
+    }
 
     const coreMemory = await fetchCoreMemory(supabaseUrl, serviceRoleKey, userId);
     const maxAttachmentKb = coreMemory?.attachment_max_size_kb ?? CONFIG.coreMemory.attachmentKbDefault;
@@ -174,6 +183,7 @@ Deno.serve(async (req: Request) => {
       : CONFIG.coreMemory.defaultRules;
 
     const accessToken = await getValidAccessToken(connection, supabaseUrl, serviceRoleKey);
+    timer.mark('setup'); // auth + connection + core memory + token
 
     const isBaseline = !connection.last_synced_at;
     const maxEmails = isBaseline ? CONFIG.sync.baselineMax : CONFIG.sync.incrementalMax;
@@ -182,7 +192,7 @@ Deno.serve(async (req: Request) => {
       ? 'in:inbox is:unread category:primary'
       : `in:inbox category:primary after:${formatDateForGmail(connection.last_synced_at!)}`;
 
-    log('GMAIL-SYNC', 'Starting', { userId, isBaseline, maxEmails, gmailQuery });
+    Object.assign(syncSummary, { isBaseline, maxEmails });
 
     // 1. Fetch ALL message IDs (paginate until exhausted or hit cap)
     const allIds: Array<{ id: string; threadId: string }> = [];
@@ -217,9 +227,11 @@ Deno.serve(async (req: Request) => {
       pageToken = listResult.data.nextPageToken;
       if (!pageToken) break;
     }
+    timer.mark('gmail-list');
 
     if (gmailListFailed) {
       const errorStage: ErrorStage = 'gmail-list';
+      Object.assign(syncSummary, { outcome: 'gmail-list-failed', hasError: true, errorStage });
       return jsonResponse({
         syncedCount: 0,
         syncedByBin: { emergency: 0, info: 0, maybe: 0 } as Record<BinKey, number>,
@@ -240,6 +252,7 @@ Deno.serve(async (req: Request) => {
     }
 
     if (allIds.length === 0) {
+      syncSummary.outcome = 'no-new-emails';
       await updateLastSyncedAt(supabaseUrl, serviceRoleKey, connection.id);
       return jsonResponse({
         syncedCount: 0,
@@ -255,10 +268,12 @@ Deno.serve(async (req: Request) => {
     // 2. Dedup against already-synced emails in DB
     const gmailIds = allIds.map((message) => message.id);
     const existingIds = await fetchExistingMessageIds(supabaseUrl, serviceRoleKey, userId, gmailIds);
+    timer.mark('dedup');
     const existingSet = new Set(existingIds);
     const newMessages = allIds.filter((message) => !existingSet.has(message.id));
 
     if (newMessages.length === 0) {
+      syncSummary.outcome = 'all-deduped';
       await updateLastSyncedAt(supabaseUrl, serviceRoleKey, connection.id);
       return jsonResponse({
         syncedCount: 0,
@@ -289,6 +304,7 @@ Deno.serve(async (req: Request) => {
 
     for (let batchStart = 0; batchStart < newMessages.length; batchStart += classifyBatchSize) {
       const classifyBatch = newMessages.slice(batchStart, batchStart + classifyBatchSize);
+      const batchLabel = String(batchStart / classifyBatchSize);
 
       // Fetch Gmail details in small concurrent chunks
       const validMessages: GmailMessageResponse[] = [];
@@ -309,6 +325,8 @@ Deno.serve(async (req: Request) => {
           await new Promise((resolve) => setTimeout(resolve, batchDelay));
         }
       }
+
+      timer.mark(`batch${batchLabel}-fetch-details`);
 
       if (validMessages.length === 0) continue;
 
@@ -373,6 +391,7 @@ Deno.serve(async (req: Request) => {
       } else {
         for (const message of validMessages) successfulIds.add(message.id);
       }
+      timer.mark(`batch${batchLabel}-gemini`);
 
       const messagesToUpsert = validMessages.filter((message) => successfulIds.has(message.id));
       const upsertRecords = messagesToUpsert.map((message) => {
@@ -413,6 +432,7 @@ Deno.serve(async (req: Request) => {
       await Promise.all(upsertRecords.map(({ payload }) =>
         upsertEmail(supabaseUrl, serviceRoleKey, payload),
       ));
+      timer.mark(`batch${batchLabel}-upsert`);
 
       for (const { receivedAt, binKey } of upsertRecords) {
         syncedCount++;
@@ -453,7 +473,10 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    log('GMAIL-SYNC', 'Complete', { userId, syncedCount, isBaseline, hasMore, hasError, errorStage });
+    timer.mark('finalize');
+    Object.assign(syncSummary, {
+      outcome: 'complete', syncedCount, hasMore, hasError, errorStage, processed: newMessages.length,
+    });
     return jsonResponse({
       syncedCount,
       syncedByBin,
@@ -467,7 +490,10 @@ Deno.serve(async (req: Request) => {
       isBaseline,
     });
   } catch (error) {
-    logWeird('GMAIL-SYNC', 'Sync failed', { reason: error instanceof Error ? error.message : String(error) });
+    syncSummary.outcome = 'crashed';
+    syncSummary.error = error instanceof Error ? error.message : String(error);
     return jsonResponse({ error: error instanceof Error ? error.message : 'sync_failed' }, 500);
+  } finally {
+    timer.summary(syncSummary);
   }
 });

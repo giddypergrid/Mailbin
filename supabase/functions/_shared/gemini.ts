@@ -9,6 +9,7 @@ type GeminiPart =
 type GeminiRequest = {
   systemInstruction?: { parts: GeminiPart[] };
   contents: Array<{ role?: string; parts: GeminiPart[] }>;
+  generationConfig?: { thinkingConfig?: { thinkingBudget: number } };
 };
 
 type GeminiResponse = {
@@ -41,6 +42,7 @@ Who sent this, and what is their relationship to the user?
     * a specific active service the user clearly uses (named account, specific resource ID, specific bill),
     * a specific verifiable account state ("3 failed logins from IP X at 02:14").
   Generic urgency without a specific tied object → MAYBE, even if words like URGENT/CRITICAL/ACT NOW appear.
+  Weigh the SENDER'S OWN framing of severity, not the worst case you can imagine. A routine notification ("new sign-in — was this you?", "FYI", "no action needed if this was you") is informational → MAYBE. Escalate only when the email ITSELF flags the event as suspicious / unrecognized AND pushes a secure-the-account action. Do not invent a threat the email does not claim.
 - SYSTEM celebrating/nudging ("welcome", "we miss you", milestone) → maybe.
 
 ## Filter C — Consequence at 24h delay
@@ -60,6 +62,17 @@ After the three filters above, consult the user's PERSONAL CONTEXT (if any).
 INFO ⇔ Filter B = "system handing value" AND the value appears verbatim in the email.
 EMERGENCY ⇔ Filter A = yes AND (Filter C = real harm OR Filter B = human waiting with deadline) AND no safety override.
 MAYBE ⇔ everything else. This is the safe default — when uncertain, choose maybe.
+
+# EMERGENCY — promote ONLY if at least one is LITERALLY present (else Maybe/Info)
+
+1. A real person, writing 1:1 to the user (not a newsletter / no-reply / bulk), asks a question, requests a decision, or is waiting on a reply.
+2. A specific deadline within ~72h tied to a concrete obligation (interview, document/application due, payment due, appointment).
+3. Money actively at risk or accruing that an action stops — unexpected/fraud charge, payment failed → service suspended, OR a paid resource still billing while idle ("idle pods", "instance still running", "you're being charged for").
+4. A security event the EMAIL ITSELF flags as suspicious / unrecognized AND tells you to secure the account (not a routine "new sign-in" FYI).
+5. Legal / medical / safety / immigration matter needing the user's action.
+6. Time-sensitive logistics needing action — flight/booking cancelled or changed, delivery failed or awaiting a response.
+
+If none is literally present → Maybe (or Info if a portable value is in the body). Automated / bulk mail clears this bar far less often than 1:1 human mail.
 
 # INFO — SUMMARY TEMPLATES
 
@@ -97,8 +110,8 @@ MAYBE:
 
 # CONFUSABLE PAIRS — WHERE THE FILTERS DECIDE
 
-1. Login alert on YOUR usual device / OS / location → maybe.
-   Login alert from FOREIGN country / unknown device → emergency (security harm + action).
+1. Sign-in / new-device notification the sender frames as ROUTINE ("new sign-in — was this you?", no alarm) → maybe. A new or unfamiliar device ALONE is not a threat — it is usually the user on a new phone / browser / reinstall.
+   Sign-in the email ITSELF flags as suspicious or unrecognized AND tells you to secure the account → emergency. The discriminator is the sender's framing of severity, not the mere newness of the device.
 
 2. Trial / subscription expired with no data-loss deadline OR deadline >72h away → MAYBE (slow burn).
    "Data deleted in 30 days" / "expires in 3 days" / "soon" → MAYBE — not 24h.
@@ -220,16 +233,10 @@ Return ONLY a JSON object — no prose, no markdown fences. Example:
       parts: [{ text: systemInstruction }],
     },
     contents: [{ parts }],
+    generationConfig: { thinkingConfig: { thinkingBudget: CONFIG.gemini.thinkingBudget } },
   };
 
   try {
-    log('GEMINI', 'Sending classify+summarize request', {
-      userId,
-      emailCount: emailSummaries.length,
-      model: getGeminiModel(),
-      customRuleCount: customRules.length,
-    });
-
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${getGeminiModel()}:generateContent`,
       {
@@ -257,8 +264,6 @@ Return ONLY a JSON object — no prose, no markdown fences. Example:
     }
 
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    log('GEMINI', 'Raw response', { userId, text: text?.slice(0, 400) });
 
     if (!text) {
       logWeird('GEMINI', 'Empty response', { finishReason: data.candidates?.[0]?.finishReason });
@@ -293,12 +298,6 @@ Return ONLY a JSON object — no prose, no markdown fences. Example:
       }
     }
 
-    log('GEMINI', 'Classify+summarize complete', {
-      userId,
-      classified: Object.keys(result).length,
-      sampleId: Object.keys(result)[0],
-      sampleResult: result[Object.keys(result)[0]],
-    });
     return { classifications: result, errorStage: null };
   } catch (error) {
     logWeird('GEMINI', 'Request failed', {
