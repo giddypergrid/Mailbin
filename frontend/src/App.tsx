@@ -367,19 +367,19 @@ export function App() {
     gmailFetch(selectedBin);
   }, [selectedBin, isGmailConnected, isSyncing, gmailFetch]);
 
-  // Entering a bin means its synced emails are now shown → clear its "new"
-  // count so "New Message" only surfaces for emails synced WHILE viewing.
-  useEffect(() => {
-    if (selectedBin) {
-      setNewEmailCountByBin((prev) => (prev[selectedBin] === 0 ? prev : { ...prev, [selectedBin]: 0 }));
-    }
-  }, [selectedBin]);
-
   // Populate all bin statuses after sync finishes so the home screen reflects
   // sleepy/awake correctly without requiring the user to enter each bin first.
   useEffect(() => {
     if (!isGmailConnected || isSyncing) return;
     bins.forEach((bin) => gmailFetch(bin.id));
+    // Sync just ended → every bin was refetched, so any new mail is already on
+    // screen. Counts are stale; clear them or the viewed bin shows a false
+    // "New Message".
+    setNewEmailCountByBin((prev) =>
+      prev.emergency || prev.info || prev.maybe
+        ? { emergency: 0, info: 0, maybe: 0 }
+        : prev,
+    );
   }, [isGmailConnected, isSyncing, gmailFetch]);
 
   const loadMoreGmail = useCallback(() => {
@@ -977,7 +977,6 @@ export function App() {
           <section className="mail-list" aria-label={`${activeBin.title} mail list`} ref={mailListRef}>
             {currentBinStatus === 'empty' && !isSyncing ? (
               <div className="empty-state" onClick={() => { setFloatingMessage('No unread mail — bin is sleeping 😴'); setTimeout(() => setFloatingMessage(null), 1500); }}>
-                <img className="empty-state-image" src={activeBin.sleepyImage} alt={`${activeBin.title} bin sleeping`} />
                 {floatingMessage ? (
                   <div className="floating-toast">{floatingMessage}</div>
                 ) : null}
